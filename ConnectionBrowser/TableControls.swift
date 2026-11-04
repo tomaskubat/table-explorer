@@ -3,12 +3,10 @@ import SwiftUI
 struct TableControls: View {
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
-    @FocusState private var editingFilter: Bool
     private func reload() { Task { await workspace.load(tab) } }
 
     var body: some View {
         HStack {
-            Button("Filters") { tab.toggleFilters() }.help("Show filters (⌘F)")
             Button("Columns") { tab.columnsShown.toggle() }.help("Choose visible columns (⌘⌥F)")
                 .popover(isPresented: $tab.columnsShown) {
                     ScrollView {
@@ -24,21 +22,17 @@ struct TableControls: View {
                         }.padding(12)
                     }.frame(width: 180, height: min(310, CGFloat(tab.result.columns.count) * 25 + 100))
                 }
-            Menu("Sort") {
-                ForEach(tab.result.columns, id: \.self) { column in
-                    Menu(column) {
-                        Button("Ascending") { sort(column, descending: false) }
-                        Button("Descending") { sort(column, descending: true) }
-                    }
-                }
-                Button("Clear Sort") { tab.sortColumn = nil; reload() }
-            }
-            Menu("Page Size: \(tab.limit)") {
-                ForEach([25, 100, 300, 500, 1000], id: \.self) { size in
-                    Button(String(size)) { tab.limit = size; tab.offset = 0; reload() }
-                }
-            }
+            Button("Filters") { tab.toggleFilters() }.help("Show filters (⌘F)")
         }.controlSize(.small)
+    }
+}
+
+struct FilterConditions: View {
+    let workspace: Workspace
+    @Bindable var tab: WorkspaceTab
+    @FocusState private var editingFilter: Bool
+    private func reload() { Task { await workspace.load(tab) } }
+    var body: some View {
         if tab.filterEditorVisible {
             VStack(alignment: .leading) {
                 ForEach($tab.filters) { $filter in
@@ -69,7 +63,7 @@ struct TableControls: View {
                     Button("Unset") { tab.filters = []; tab.appliedFilters = []; tab.offset = 0; reload() }
                     Button("Apply Filters") { Task { await workspace.applyFilters(tab) } }.help("Apply all conditions (⌘Return)")
                 }
-            }.onChange(of: editingFilter) {
+            }.padding(7).background(BrowserChrome.panel).onChange(of: editingFilter) {
                 if editingFilter { workspace.focusArea = .filter }
                 else if workspace.focusArea == .filter { workspace.focusArea = nil }
             }
@@ -78,8 +72,5 @@ struct TableControls: View {
 
     private func addFilter() {
         if let column = tab.result.columns.first { tab.filters.append(ColumnFilter(column: column)) }
-    }
-    private func sort(_ column: String, descending: Bool) {
-        tab.sortColumn = column; tab.descending = descending; tab.offset = 0; reload()
     }
 }

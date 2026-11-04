@@ -37,7 +37,7 @@ final class SQLWorkspaceTests: XCTestCase {
         XCTAssertTrue(window.staticTexts["First"].waitForExistence(timeout: 4))
         XCTAssertEqual(editor.value as? String, first)
         window.staticTexts["First"].firstMatch.click()
-        let detail = window.staticTexts["row-detail-header"]
+        let detail = window.textFields["Search for field"]
         XCTAssertTrue(detail.exists)
         window.buttons["Row Detail"].click()
         XCTAssertTrue(detail.waitForNonExistence(timeout: 3))

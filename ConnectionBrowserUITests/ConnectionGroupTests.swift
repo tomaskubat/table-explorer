@@ -31,7 +31,9 @@ final class ConnectionGroupTests: XCTestCase {
         XCTAssertLessThan(neighbor.frame.minY, originalNeighborY)
         attach(window, as: "Collapsed group")
 
-        toggle.click()
+        // Screenshots can hand focus back to a different open application.
+        app.activate()
+        window.disclosureTriangles.firstMatch.click()
         XCTAssertTrue(local.waitForExistence(timeout: 3))
         XCTAssertTrue(stage.isHittable)
         XCTAssertTrue(neighbor.isHittable)

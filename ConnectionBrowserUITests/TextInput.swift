@@ -45,7 +45,10 @@ extension XCUIElement {
 extension XCUIApplication {
     @MainActor
     func newProfile(driver: String) {
-        buttons["New Connection"].click()
+        activate()
+        let createProfile = windows["Saved Connections"].buttons["New Connection"]
+        XCTAssertTrue(createProfile.waitForExistence(timeout: 5))
+        createProfile.click()
         let choice = buttons["driver-" + driver]
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         XCTAssertFalse(buttons["Create"].isEnabled)

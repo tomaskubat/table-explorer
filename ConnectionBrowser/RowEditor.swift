@@ -12,7 +12,7 @@ struct RowActions: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack { editingButtons; changeButtons }
+            HStack(spacing: 3) { editingButtons; changeButtons }
             VStack(alignment: .leading) { HStack { editingButtons }; HStack { changeButtons } }
         }
         .controlSize(.small)
@@ -26,13 +26,14 @@ struct RowActions: View {
     }
 
     @ViewBuilder private var editingButtons: some View {
-        Button("Add Row") { tab.editor = RowChange(original: nil) }.disabled(!canWrite)
-        Button("Edit Row") { tab.editor = selectedDraft }.disabled(!canEdit)
-        Menu("Row Actions") {
+        Button { tab.editor = RowChange(original: nil) } label: { Label("Row", systemImage: "plus") }
+            .accessibilityLabel("Add Row").help("Add row").disabled(!canWrite)
+        Button("Edit Row", systemImage: "pencil") { tab.editor = selectedDraft }.labelStyle(.iconOnly).help("Edit row").disabled(!canEdit)
+        Menu {
             Button("Duplicate Rows") { tab.duplicate(tab.selectedRows) }.disabled(!canWrite || tab.selectedRows.isEmpty)
             Button("Mark for Deletion…") { tab.deletionReview = tab.deletions(tab.selectedRows) }.disabled(!canEdit)
             Button("Undo Last Change") { tab.undoChange() }.disabled(tab.editHistory.isEmpty)
-        }
+        } label: { Image(systemName: "chevron.down") }.menuIndicator(.hidden).fixedSize().accessibilityLabel("Row Actions").help("Row actions")
     }
 
     @ViewBuilder private var changeButtons: some View {

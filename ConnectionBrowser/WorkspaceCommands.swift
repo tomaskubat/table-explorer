@@ -146,8 +146,8 @@ struct ObjectSearch: View {
     private var matches: [DatabaseObject] { workspace.objects.filter { term.isEmpty || $0.name.localizedCaseInsensitiveContains(term) } }
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Open Anything").font(.title2)
-            TextField("Search objects in " + workspace.database, text: $term)
+            Text("Open Anything").font(.headline).frame(maxWidth: .infinity)
+            ChromeSearchField(title: "Search objects in " + workspace.database, text: $term)
             List(matches, selection: $selection) { object in
                 HStack { Text(object.name); Spacer(); Text(object.kind.rawValue).foregroundStyle(.secondary) }
                     .tag(object.id).contentShape(Rectangle()).onTapGesture(count: 2) { open(object) }
@@ -157,7 +157,7 @@ struct ObjectSearch: View {
                 Button("Open") { if let target = selection ?? matches.first { open(target) } }
                     .keyboardShortcut(.defaultAction).disabled(matches.isEmpty)
             }
-        }.padding(16).frame(width: 420, height: 300)
+        }.padding(16).frame(width: 400, height: 430).background(BrowserChrome.paper)
         .onChange(of: term) { selection = matches.first }
     }
     private func open(_ object: DatabaseObject) { dismiss(); Task { await workspace.open(object) } }
@@ -172,9 +172,9 @@ struct DatabaseChooser: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Change Database").font(.title2)
+            Text("Change Database").font(.headline).frame(maxWidth: .infinity)
             Text("Switching databases closes object tabs and clears results. SQL text is kept.").font(.caption)
-            TextField("Search databases", text: $search)
+            ChromeSearchField(title: "Search databases", text: $search)
             List(names.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }, id: \.self, selection: $selected) { Text($0) }
             if let error { Text(error).foregroundStyle(.red) }
             HStack {
@@ -187,7 +187,7 @@ struct DatabaseChooser: View {
                     }
                 }.disabled(selected == nil)
             }
-        }.padding(16).frame(width: 420, height: 300)
+        }.padding(16).frame(width: 400, height: 430).background(BrowserChrome.paper)
         .task {
             do { names = try await workspace.session.query("SHOW DATABASES", limit: .max).rows.map { $0[0].display }; selected = workspace.database }
             catch { self.error = error.localizedDescription }

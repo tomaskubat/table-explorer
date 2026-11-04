@@ -2,6 +2,22 @@ import AppKit
 import Foundation
 import Observation
 
+struct ConsoleEntry: Sendable, Identifiable {
+    let id = UUID()
+    let date = Date()
+    let text: String
+}
+
+struct ConsoleLog {
+    var entries: [ConsoleEntry] = []
+    var isEmpty: Bool { entries.isEmpty }
+    mutating func append(_ text: String) { entries.append(ConsoleEntry(text: text)) }
+    mutating func append(contentsOf statements: [String]) {
+        entries.append(contentsOf: statements.map { ConsoleEntry(text: $0) })
+    }
+    mutating func removeAll() { entries.removeAll() }
+}
+
 @MainActor @Observable
 final class WorkspaceTab: Identifiable {
     let id: UUID
@@ -170,7 +186,7 @@ final class Workspace: Identifiable {
     private var nextQueryNumber = 1
     var activeID: UUID?
     var active: WorkspaceTab? { tabs.first { $0.id == activeID } }
-    var log: [String] = []
+    var log = ConsoleLog()
     var error: String?
     var connected = true
     var reconnecting = false
@@ -418,7 +434,7 @@ final class Workspace: Identifiable {
             let page = try await session.page(of: object, filters: tab.appliedFilters, sortColumn: tab.sortColumn,
                                               descending: tab.descending, offset: tab.offset, limit: tab.limit, keyColumns: keyColumns)
             guard request == tab.requestID else { return }
-            log.append(page.sql)
+            log.entries.append(contentsOf: page.statements)
             tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset
             let keyIndices = keyColumns.compactMap(page.result.columns.firstIndex)
             tab.selectedRows = Set(page.result.rows.indices.filter { index in

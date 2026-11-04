@@ -14,7 +14,7 @@ struct TablePage: Sendable {
     let result: QueryResult
     let count: Int
     let offset: Int
-    let sql: String
+    let statements: [ConsoleEntry]
 }
 
 struct TableRead: Sendable {
@@ -54,11 +54,14 @@ extension DatabaseSession {
     func page(of object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool,
               offset: Int, limit: Int, keyColumns: [String]) throws -> TablePage {
         let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending, keyColumns: keyColumns)
-        let countResult = try query("SELECT COUNT(*)" + read.from, parameters: read.parameters)
+        let countStatement = ConsoleEntry(text: "SELECT COUNT(*)" + read.from)
+        let countResult = try query(countStatement.text, parameters: read.parameters)
         guard let cell = countResult.rows.first?.first, let count = Int(cell.display) else { throw BrowserError("Could not read the filtered row count.") }
         let size = min(max(1, limit), 10000)
         let start = min(max(offset, 0), (max(count - 1, 0) / size) * size)
         let sql = "SELECT *" + read.from + read.order + " LIMIT \(size) OFFSET \(start)"
-        return try TablePage(result: query(sql, parameters: read.parameters, limit: size), count: count, offset: start, sql: sql)
+        let selectStatement = ConsoleEntry(text: sql)
+        return try TablePage(result: query(sql, parameters: read.parameters, limit: size), count: count,
+                             offset: start, statements: [countStatement, selectStatement])
     }
 }

@@ -32,9 +32,9 @@ final class GridInteractionTests: XCTestCase {
         fieldSearch.typeText(" ")
         XCTAssertEqual(fieldSearch.value as? String, "na ")
         window.buttons["Row Detail"].click()
-        XCTAssertFalse(window.staticTexts["row-detail-header"].exists)
+        XCTAssertFalse(window.textFields["Search for field"].exists)
         app.typeKey(.space, modifierFlags: [])
-        XCTAssertTrue(window.staticTexts["row-detail-header"].waitForExistence(timeout: 4))
+        XCTAssertTrue(window.textFields["Search for field"].waitForExistence(timeout: 4))
         brno.click()
         app.typeKey("f", modifierFlags: [.command, .option])
         let keyColumn = app.checkBoxes["id"]

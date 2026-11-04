@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @Bindable var workspace: Workspace
+    let registry: WorkspaceRegistry
     @State private var search = ""
     @State private var fieldSearch = ""
     @State private var navigator = "Items"
@@ -11,6 +12,7 @@ struct WorkspaceView: View {
 
     var body: some View {
         layout
+        .ignoresSafeArea(.container, edges: .top)
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
         .frame(minWidth: 980, minHeight: 590)
         .onChange(of: panelFocus) { if let panelFocus { workspace.focusArea = panelFocus } }
@@ -54,36 +56,11 @@ struct WorkspaceView: View {
                 }
             }.padding(18).frame(width: 480, height: 300)
         }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 5) {
-                    Text(workspace.profile.driver.rawValue)
-                    if !workspace.profile.environment.isEmpty {
-                        Text(workspace.profile.environment.uppercased()).fontWeight(.semibold).foregroundStyle(workspace.profile.environmentColor)
-                    }
-                    if let object = workspace.active?.object { Text("· " + object.name) }
-                }.font(.caption)
-            }
-            ToolbarItemGroup {
-                if workspace.profile.driver == .mariaDB {
-                    Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
-                }
-                Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }.help("New query (⌘T)")
-                Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
-                    .tint(workspace.showItems ? .accentColor : .secondary)
-                    .accessibilityValue(workspace.showItems ? "Shown" : "Hidden").help("Show or hide the item list")
-                Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
-                    .tint(workspace.showConsole ? .accentColor : .secondary)
-                    .accessibilityValue(workspace.showConsole ? "Shown" : "Hidden").help("Show or hide the SQL console (⇧⌘C)")
-                Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
-                    .tint(workspace.showDetails ? .accentColor : .secondary)
-                    .accessibilityValue(workspace.showDetails ? "Shown" : "Hidden").help("Show or hide row detail (Space in the grid)")
-            }
-        }
         .task { await workspace.reloadObjects(); workspace.offerBootstrap() }
     }
     private var layout: some View {
         VStack(spacing: 0) {
+            WorkspaceTitleBar(workspace: workspace) { if let tab = workspace.active { requestClose(tab) } }
             if !workspace.connected {
                 HStack {
                     Label("Disconnected", systemImage: "bolt.slash")
@@ -91,81 +68,79 @@ struct WorkspaceView: View {
                     Button("Reconnect") { Task { await workspace.reconnect() } }.disabled(workspace.reconnecting)
                 }.padding(8).background(.orange.opacity(0.12))
             }
-            HSplitView {
-                if workspace.showItems {
-                    VStack(alignment: .leading) {
-                        Picker("Navigator", selection: $navigator) {
-                            ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
-                        }.pickerStyle(.segmented).labelsHidden().onChange(of: navigator) { search = "" }
-                        TextField(navigator == "Items" ? "Search for item" : "Search queries", text: $search).focused($panelFocus, equals: .items)
-                        if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
-                        else { ObjectListView(workspace: workspace, search: search) }
-                    }.padding(8).frame(minWidth: 175, idealWidth: 190, maxWidth: 250, alignment: .topLeading)
+            HStack(spacing: 0) {
+                if registry.sessions.count > 1 {
+                    SessionRail(current: workspace, registry: registry)
+                    Divider()
                 }
+                panes
+            }
+        }
+    }
+
+    private var panes: some View {
+        HSplitView {
+            if workspace.showItems {
                 VStack(alignment: .leading, spacing: 0) {
-                    if !workspace.tabs.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack {
-                                ForEach(workspace.tabs) { tab in
-                                    Button(tab.title) { workspace.activeID = tab.id }
-                                        .buttonStyle(.bordered)
-                                        .tint(tab.id == workspace.activeID ? .accentColor : .secondary)
-                                        .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
-                                    if tab.id == workspace.activeID {
-                                        Button("Close Tab", systemImage: "xmark") { requestClose(tab) }
-                                            .buttonStyle(.borderless).labelStyle(.iconOnly).disabled(tab.busy)
-                                    }
-                                }
-                            }.padding(6)
-                        }.fixedSize(horizontal: false, vertical: true)
-                        Divider()
-                    }
-                    if let tab = workspace.active {
-                        WorkspaceTabView(workspace: workspace, tab: tab).id(tab.id)
-                    } else {
-                        ContentUnavailableView("No Open Tabs", systemImage: "tablecells", description: Text("Open a table or start a new SQL query."))
-                    }
-                    if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
-                    if workspace.showConsole {
-                        Divider()
-                        ScrollView {
-                            Text(workspace.log.isEmpty ? "Open a table or run a query to see its SQL." : workspace.log.joined(separator: "\n"))
-                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(8).frame(height: 80).focusable().focused($panelFocus, equals: .console).accessibilityLabel("SQL Console").accessibilityIdentifier("SQL Console")
-                    }
-                }.frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
-                if workspace.showDetails {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Row Detail").font(.headline).accessibilityIdentifier("row-detail-header")
-                        TextField("Search for field", text: $fieldSearch).accessibilityLabel("Search for field").focused($panelFocus, equals: .detail)
-                        if let tab = workspace.active, !tab.showStructure, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    let values = tab.displayed.rows[index]
-                                    let fields = Array(zip(tab.result.columns, values).enumerated())
-                                    ForEach(fields.filter { fieldSearch.isEmpty || $0.element.0.localizedCaseInsensitiveContains(fieldSearch) }, id: \.offset) { i, field in
-                                        let (name, value) = field
-                                        HStack {
-                                            Text(name).font(.caption).foregroundStyle(.secondary)
-                                            Spacer()
-                                            if let column = tab.schema?.columns.first(where: { $0.name == name }) {
-                                                Text(column.type).font(.caption2).foregroundStyle(.secondary)
-                                                Button("Edit " + name, systemImage: "pencil") {
-                                                    if !tab.hiddenColumns.contains(name) { tab.focusedColumn = name }
-                                                    tab.cellEditor = CellEdit(column: name, value: value, draft: tab.editRow(at: index),
-                                                        writable: workspace.connected && tab.canEdit(index) && !column.generated, nullable: column.nullable)
-                                                }.labelStyle(.iconOnly).buttonStyle(.borderless).accessibilityIdentifier("detail-edit-" + name)
-                                            }
-                                        }
-                                        Text(value.display).textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")
-                                    }
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        } else { Text("Select a row").foregroundStyle(.secondary) }
+                    Picker("Navigator", selection: $navigator) {
+                        ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
+                    }.pickerStyle(.segmented).labelsHidden().controlSize(.small).tint(.gray)
+                    .padding(.horizontal, 9).padding(.vertical, 5).onChange(of: navigator) { search = "" }
+                    ChromeSearchField(title: navigator == "Items" ? "Search for item" : "Search queries", text: $search)
+                        .focused($panelFocus, equals: .items).padding(.horizontal, 9).padding(.bottom, 4)
+                    if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
+                    else { ObjectListView(workspace: workspace, search: search) }
+                    HStack {
                         Spacer()
-                    }.padding(8).frame(minWidth: 150, idealWidth: 175, maxWidth: 220, alignment: .topLeading)
+                        Menu {
+                            Button("New Table…") { workspace.schemaDraft = SchemaDraft(kind: .table) }
+                            Button("New View…") { workspace.schemaDraft = SchemaDraft(kind: .view) }
+                            Button("New Query") { workspace.newQuery() }
+                        } label: { Image(systemName: "plus") }
+                            .fixedSize().controlSize(.small).disabled(!workspace.connected).accessibilityLabel("Create database item")
+                    }.padding(.horizontal, 8).frame(height: 27)
+                }.frame(minWidth: 175, idealWidth: 245, maxWidth: 285).background(BrowserChrome.panel)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                if workspace.tabs.count > 1 {
+                    GeometryReader { geo in
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 0) {
+                                ForEach(workspace.tabs) { tab in
+                                    Button {
+                                        workspace.activeID = tab.id
+                                    } label: {
+                                        Text(tab.title).lineLimit(1).font(.system(size: 11, weight: tab.id == workspace.activeID ? .semibold : .regular))
+                                            .frame(width: max(100, geo.size.width / CGFloat(workspace.tabs.count)), height: 25)
+                                            .background(tab.id == workspace.activeID ? BrowserChrome.paper : BrowserChrome.bar)
+                                            .contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                    .overlay(alignment: .trailing) { Divider() }
+                                    .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
+                                }
+                            }
+                        }.scrollIndicators(.hidden)
+                    }.frame(height: 25)
+                    Divider()
                 }
+                if let tab = workspace.active {
+                    WorkspaceTabView(workspace: workspace, tab: tab).id(tab.id)
+                } else {
+                    VStack(spacing: 9) {
+                        Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary)
+                        Text("No Open Tabs").font(.callout).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
+                if workspace.showConsole {
+                    Divider()
+                    WorkspaceConsole(workspace: workspace).frame(height: 135)
+                        .focusable().focused($panelFocus, equals: .console)
+                }
+            }.frame(minWidth: 490, maxWidth: .infinity, maxHeight: .infinity).background(BrowserChrome.paper)
+            if workspace.showDetails {
+                RecordInspector(workspace: workspace, search: $fieldSearch)
+                    .focused($panelFocus, equals: .detail).frame(minWidth: 170, idealWidth: 260, maxWidth: 355)
             }
         }
     }
@@ -183,63 +158,41 @@ private struct WorkspaceTabView: View {
     @State private var exportScope: ExportScope?
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
+    private var hasDataMode: Bool { tab.object?.kind == .table || tab.object?.kind == .view }
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             if tab.object == nil {
-                QueryPane(workspace: workspace, tab: tab)
-            }
-            if tab.object?.kind == .table || tab.object?.kind == .view {
-                Picker("Object Mode", selection: $tab.showStructure) {
-                    Text("Data").tag(false)
-                    Text("Structure").tag(true)
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 180)
-                if tab.showStructure {
-                    Picker("Structure Section", selection: $tab.section) {
-                        ForEach(["Columns", "Indexes", "Foreign Keys", "Triggers", "DDL"], id: \.self) { Text($0) }
-                    }.frame(maxWidth: 320).accessibilityIdentifier("Structure Section")
-                } else {
-                    TableControls(workspace: workspace, tab: tab)
+                VSplitView {
+                    VStack(spacing: 0) { QueryPane(workspace: workspace, tab: tab) }
+                        .frame(minHeight: 118, idealHeight: 280, maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 0) {
+                        activity
+                        ResultTable(result: tab.result, selected: $tab.selected)
+                    }.frame(minHeight: 84, idealHeight: 240, maxHeight: .infinity)
                 }
-            }
-            if tab.busy { ProgressView("Running query…").controlSize(.small) }
-            if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
-            if tab.showStructure {
-                if tab.section == "DDL", let row = tab.structureResult.rows.first {
-                    if let ddl = row.first(where: { $0.display.uppercased().contains("CREATE ") }) {
-                        ScrollView { Text(ddl.display).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                    } else { Text("The server did not expose this definition to your account.").accessibilityIdentifier("routineUnavailable") }
-                } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
             } else {
-                if tab.object != nil {
-                    DataGrid(workspace: workspace, tab: tab).frame(minHeight: 130).layoutPriority(1)
-                    RowActions(workspace: workspace, tab: tab)
+                if hasDataMode && !tab.showStructure { FilterConditions(workspace: workspace, tab: tab) }
+                activity
+                if tab.showStructure {
+                    if tab.section == "DDL", let row = tab.structureResult.rows.first {
+                        if let ddl = row.first(where: { $0.display.uppercased().contains("CREATE ") }) {
+                            ScrollView { Text(ddl.display).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                        } else { Text("The server did not expose this definition to your account.").accessibilityIdentifier("routineUnavailable") }
+                    } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
                 } else {
-                    ResultTable(result: tab.result, selected: $tab.selected).frame(minHeight: 130).layoutPriority(1)
+                    DataGrid(workspace: workspace, tab: tab).frame(minHeight: 130).layoutPriority(1)
                 }
             }
-            HStack(spacing: 8) {
-                if tab.object?.kind == .table {
-                    Button("Import CSV") { importShown = true }
-                        .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
-                }
-                Button("Export Data") { exportScope = nil; exportShown = true }
-                    .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
-                if tab.selectedRows.count > 1 { Text("\(tab.selectedRows.count) rows selected").font(.caption) }
-                if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
-                else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption) }
-                Spacer()
-                if tab.object != nil {
-                    Button("Previous Page") {
-                        tab.offset = max(0, tab.offset - tab.limit)
-                        Task { await workspace.load(tab) }
-                    }.disabled(tab.offset == 0 || tab.busy)
-                    Button("Next Page") {
-                        tab.offset += tab.limit
-                        Task { await workspace.load(tab) }
-                    }.disabled(tab.offset + tab.result.rows.count >= tab.totalCount || tab.busy)
+            Divider()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 5) { modeAndRows; Spacer(minLength: 0); status; Spacer(minLength: 0); pageControls }
+                VStack(spacing: 3) {
+                    HStack(spacing: 4) { modeAndRows; Spacer(minLength: 0); status }
+                    HStack(spacing: 4) { Spacer(); pageControls }
                 }
             }
-        }.controlSize(.small).padding(8)
+            .lineLimit(1).padding(.horizontal, 6).padding(.vertical, 5).background(BrowserChrome.panel)
+        }.controlSize(.small)
         .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
         .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab, initialScope: exportScope) }
         .onChange(of: tab.transfer, initial: true) {
@@ -263,42 +216,72 @@ private struct WorkspaceTabView: View {
         }
         .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }
     }
-}
+    @ViewBuilder private var activity: some View {
+        if tab.busy { ProgressView("Running query…").controlSize(.small) }
+        if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
+    }
 
-private struct GridRow: Identifiable {
-    let id: Int
-    let cells: [SQLValue]
-}
-
-private struct GridColumn: Identifiable, Hashable {
-    let offset: Int
-    let title: String
-    var id: Self { self }
-}
-
-struct ResultTable: View {
-    let result: QueryResult
-    @Binding var selected: Int?
-    var hidden: Set<String> = []
-    var pending: [Int: [String: String]] = [:]
-    var body: some View {
-        let columns = result.columns.enumerated().compactMap { offset, title in
-            hidden.contains(title) ? nil : GridColumn(offset: offset, title: title)
+    @ViewBuilder private var modeAndRows: some View {
+        if hasDataMode {
+            Picker("Object Mode", selection: $tab.showStructure) {
+                Text("Data").tag(false)
+                Text("Structure").tag(true)
+            }.pickerStyle(.segmented).labelsHidden().fixedSize().tint(.gray)
         }
-        Table(result.rows.enumerated().map { GridRow(id: $0.offset, cells: $0.element) }, selection: $selected) {
-            TableColumnForEach(columns) { column in
-                TableColumn(column.title) { row in
-                    if row.cells.indices.contains(column.offset) {
-                        let value = row.cells[column.offset]
-                        let marker = pending[row.id]?[column.title]
-                        HStack(spacing: 4) {
-                            if let marker { Image(systemName: marker).accessibilityLabel("Pending change") }
-                            Text(value.display).strikethrough(marker == "minus.circle")
-                                .foregroundStyle(value == .null ? .secondary : .primary)
+        if tab.showStructure {
+            Picker("Structure Section", selection: $tab.section) {
+                ForEach(["Columns", "Indexes", "Foreign Keys", "Triggers", "DDL"], id: \.self) { Text($0) }
+            }.labelsHidden().fixedSize().accessibilityIdentifier("Structure Section")
+        } else if tab.object != nil { RowActions(workspace: workspace, tab: tab) }
+    }
+
+    @ViewBuilder private var status: some View {
+        Group {
+            if tab.selectedRows.count > 1 { Text("\(tab.selectedRows.count) rows selected") }
+            else if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows") }
+            else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")") }
+        }.font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()
+    }
+
+    @ViewBuilder private var pageControls: some View {
+        if hasDataMode && !tab.showStructure { TableControls(workspace: workspace, tab: tab) }
+        if tab.object?.kind == .table {
+            Button("Import CSV", systemImage: "square.and.arrow.down") { importShown = true }
+                .labelStyle(.iconOnly).help("Import CSV")
+                .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
+        }
+        Button("Export Data", systemImage: "square.and.arrow.up") { exportScope = nil; exportShown = true }
+            .labelStyle(.iconOnly).help("Export Data")
+            .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
+        if hasDataMode && !tab.showStructure {
+            Button("Previous Page", systemImage: "chevron.left") {
+                tab.offset = max(0, tab.offset - tab.limit); Task { await workspace.load(tab) }
+            }.labelStyle(.iconOnly).help("Previous page").disabled(tab.offset == 0 || tab.busy)
+            Menu {
+                Section("Page Size") {
+                    ForEach([25, 100, 300, 500, 1000], id: \.self) { size in
+                        Button(String(size)) { tab.limit = size; tab.offset = 0; Task { await workspace.load(tab) } }
+                    }
+                }
+                Menu("Sort") {
+                    ForEach(tab.result.columns, id: \.self) { column in
+                        Menu(column) {
+                            Button("Ascending") { sort(column, descending: false) }
+                            Button("Descending") { sort(column, descending: true) }
                         }
                     }
-                }.width(min: 70, ideal: 125)
-            }
-        }.id(columns).accessibilityLabel("Query Results")
+                    Button("Clear Sort") { tab.sortColumn = nil; Task { await workspace.load(tab) } }
+                }
+            } label: { Image(systemName: "gearshape.fill") }
+                .menuIndicator(.hidden).fixedSize().accessibilityLabel("Page Size: \(tab.limit)").help("Page size and sorting")
+            Button("Next Page", systemImage: "chevron.right") {
+                tab.offset += tab.limit; Task { await workspace.load(tab) }
+            }.labelStyle(.iconOnly).help("Next page").disabled(tab.offset + tab.result.rows.count >= tab.totalCount || tab.busy)
+        }
     }
+
+    private func sort(_ column: String, descending: Bool) {
+        tab.sortColumn = column; tab.descending = descending; tab.offset = 0; Task { await workspace.load(tab) }
+    }
+
 }

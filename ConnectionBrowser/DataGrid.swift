@@ -6,7 +6,7 @@ import SwiftUI
 struct DataGrid: NSViewRepresentable {
     let workspace: Workspace
     let tab: WorkspaceTab
-    @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFontSize = 12.0
+    @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFontSize = 14.0
 
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace, tab: tab) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -18,9 +18,7 @@ struct DataGrid: NSViewRepresentable {
         tab.grid = table
         table.delegate = context.coordinator; table.dataSource = context.coordinator
         table.allowsMultipleSelection = true; table.allowsEmptySelection = true
-        table.usesAlternatingRowBackgroundColors = true; table.rowHeight = 23
-        table.style = .fullWidth; table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
-        table.gridStyleMask = [.solidVerticalGridLineMask]
+        GridAppearance.configure(table)
         table.setAccessibilityLabel("Data Grid"); table.setAccessibilityIdentifier("Data Grid")
         scroll.documentView = table
         return scroll
@@ -47,9 +45,11 @@ struct DataGrid: NSViewRepresentable {
             let r = row(at: point), c = column(at: point)
             super.mouseDown(with: event)
             if r >= 0, tableColumns.indices.contains(c) {
+                let previous = handler?.tab.focusedRow
                 handler?.tab.focusedRow = r
                 handler?.tab.focusedColumn = tableColumns[c].title
-                needsDisplay = true
+                if let previous, previous >= 0, previous < numberOfRows { rowView(atRow: previous, makeIfNecessary: false)?.needsDisplay = true }
+                rowView(atRow: r, makeIfNecessary: false)?.needsDisplay = true
             }
             if event.clickCount == 2 && r >= 0 && c >= 0 { handler?.edit(in: self, row: r, column: c) }
         }
@@ -65,16 +65,6 @@ struct DataGrid: NSViewRepresentable {
             window?.makeFirstResponder(self)
             needsDisplay = true
         }
-        override func draw(_ dirtyRect: NSRect) {
-            super.draw(dirtyRect)
-            guard let handler, let row = handler.tab.selected, row < numberOfRows,
-                  let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) else { return }
-            let rect = frameOfCell(atColumn: column, row: row).insetBy(dx: 1.5, dy: 1.5)
-            if rect.intersects(dirtyRect) {
-                NSColor.keyboardFocusIndicatorColor.setStroke()
-                let path = NSBezierPath(rect: rect); path.lineWidth = 2; path.stroke()
-            }
-        }
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 36, let handler, let row = handler.tab.selected,
                let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) {
@@ -85,6 +75,33 @@ struct DataGrid: NSViewRepresentable {
             } else { super.keyDown(with: event) }
         }
         @objc func copy(_ sender: Any?) { handler?.copySelected(format: .text) }
+    }
+
+    final class SelectionRow: NSTableRowView {
+        weak var grid: NSTableView?
+        override var interiorBackgroundStyle: NSView.BackgroundStyle {
+            (grid?.numberOfSelectedRows ?? 0) > 1 ? .normal : super.interiorBackgroundStyle
+        }
+        override func drawSelection(in dirtyRect: NSRect) {
+            guard let table = grid as? GridTable else { super.drawSelection(in: dirtyRect); return }
+            let row = table.row(for: self)
+            guard row >= 0 else { return }
+            if table.numberOfSelectedRows > 1 {
+                let selected = table.selectedRowIndexes
+                NSColor.controlAccentColor.withAlphaComponent(0.045).setFill(); bounds.fill()
+                NSColor.controlAccentColor.setFill()
+                if row == 0 || !selected.contains(row - 1) { NSRect(x: 0, y: 0, width: bounds.width, height: 1.5).fill() }
+                if !selected.contains(row + 1) { NSRect(x: 0, y: bounds.maxY - 1.5, width: bounds.width, height: 1.5).fill() }
+                NSRect(x: 0, y: 0, width: 1.5, height: bounds.height).fill()
+                NSRect(x: bounds.maxX - 1.5, y: 0, width: 1.5, height: bounds.height).fill()
+            } else { super.drawSelection(in: dirtyRect) }
+            if let tab = table.handler?.tab, tab.selected == row,
+               let index = table.tableColumns.firstIndex(where: { $0.title == tab.focusedColumn }) {
+                let cell = convert(table.frameOfCell(atColumn: index, row: row), from: table)
+                NSColor.systemOrange.setStroke()
+                let path = NSBezierPath(rect: cell.insetBy(dx: 1, dy: 1)); path.lineWidth = 1.5; path.stroke()
+            }
+        }
     }
 
     @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
@@ -101,7 +118,7 @@ struct DataGrid: NSViewRepresentable {
         func update(_ table: GridTable, fontSize: Double) {
             let fontChanged = self.fontSize != fontSize
             self.fontSize = fontSize
-            table.rowHeight = max(20, fontSize + 10)
+            table.rowHeight = max(22, fontSize + 14)
             let display = tab.displayed
             let visible = display.columns.enumerated().filter { !tab.hiddenColumns.contains($0.element) }
             let newMarkers = tab.cellMarkers
@@ -112,9 +129,7 @@ struct DataGrid: NSViewRepresentable {
                 for column in table.tableColumns { table.removeTableColumn(column) }
                 columns = visible.map { ($0.offset, $0.element) }
                 for column in columns {
-                    let model = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(String(column.index)))
-                    model.title = column.name; model.minWidth = 55; model.width = 130
-                    model.resizingMask = [.userResizingMask, .autoresizingMask]
+                    let model = GridAppearance.column(column.name, index: column.index, rows: display.rows, fontSize: fontSize)
                     table.addTableColumn(model)
                 }
             }
@@ -127,41 +142,37 @@ struct DataGrid: NSViewRepresentable {
 
         func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let id = NSUserInterfaceItemIdentifier("DataRow")
+            let view = (tableView.makeView(withIdentifier: id, owner: self) as? SelectionRow) ?? SelectionRow()
+            view.identifier = id; view.grid = tableView
+            return view
+        }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard let tableColumn, let column = Int(tableColumn.identifier.rawValue),
                   rows.indices.contains(row), rows[row].indices.contains(column) else { return nil }
-            let id = NSUserInterfaceItemIdentifier("DataCell")
-            let cell: NSTableCellView
-            if let reused = tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView {
-                cell = reused
-            } else {
-                cell = NSTableCellView(); cell.identifier = id
-                let field = NSTextField(labelWithString: "")
-                field.translatesAutoresizingMaskIntoConstraints = false
-                field.lineBreakMode = .byTruncatingTail; field.delegate = self
-                cell.textField = field; cell.addSubview(field)
-                NSLayoutConstraint.activate([
-                    field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -3),
-                    field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-                ])
-            }
+            let cell = GridAppearance.cell(in: tableView)
+            cell.textField?.delegate = self
             let value = rows[row][column], name = tableColumn.title
-            let text: String
-            if case .blob(let bytes) = value { text = "BLOB · \(bytes.count) bytes" } else { text = value.display }
             let marker = markers[row]?[name]
             let prefix = marker == "minus.circle" ? "− " : marker == "plus.circle" ? "+ " : marker == nil ? "" : "✎ "
-            cell.textField?.font = .systemFont(ofSize: fontSize)
-            cell.textField?.stringValue = prefix + text
-            cell.textField?.textColor = value == .null ? .secondaryLabelColor : .labelColor
-            cell.textField?.isEditable = false; cell.textField?.isSelectable = false
-            cell.textField?.setAccessibilityLabel(text.isEmpty ? "Empty string" : text)
+            GridAppearance.show(value, in: cell, size: fontSize, prefix: prefix)
             cell.textField?.setAccessibilityIdentifier("grid-\(row)-\(name)")
             return cell
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !applying, let table = notification.object as? NSTableView else { return }
             tab.selectedRows = Set(table.selectedRowIndexes)
+            table.enumerateAvailableRowViews { view, _ in
+                // A row which was already selected does not get AppKit's normal
+                // background-style update when another row joins the selection.
+                for column in 0..<view.numberOfColumns {
+                    if let cell = view.view(atColumn: column) as? NSTableCellView {
+                        cell.backgroundStyle = view.interiorBackgroundStyle
+                    }
+                }
+                view.needsDisplay = true
+            }
         }
         func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
             guard !tab.busy else { return }

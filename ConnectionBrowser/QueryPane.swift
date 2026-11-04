@@ -18,21 +18,17 @@ struct QueryPane: View {
     @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = "Review writes"
 
     var body: some View {
-        HStack {
-            Text(workspace.profile.environment.uppercased())
-                .foregroundStyle(workspace.profile.environmentColor)
-            Text(workspace.profile.name + " / " + workspace.database)
-            Spacer()
-            Text(position).monospacedDigit()
-        }.font(.caption)
         SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize, highlighting: highlight, indent: indent, driver: workspace.profile.driver, objectNames: workspace.objects.map(\.name)) { focused in
             if focused { workspace.focusArea = .sql } else if workspace.focusArea == .sql { workspace.focusArea = nil }
         }
-            .frame(minHeight: 78, idealHeight: 130, maxHeight: 200)
+            .frame(minHeight: 66, maxHeight: .infinity)
             .onChange(of: tab.sql) { workspace.updateRecovery(tab) }
             .onChange(of: tab.runRequest) { if !tab.busy && workspace.connected { run(.current) } }
             .onDisappear { workspace.saveRecovery(tab) }
-        HStack {
+        HStack(spacing: 5) {
+            Text(position).monospacedDigit().font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Save Favorite", systemImage: "star") { favoriteSheet = true }.labelStyle(.iconOnly).help("Save favorite")
             Button("Run Current") { run(.current) }.help("Run the statement at the cursor (⌘Return)")
             Menu("Run Options") {
                 Button("Run Selection") { run(.selection) }.disabled(tab.textSelection.length == 0)
@@ -44,8 +40,7 @@ struct QueryPane: View {
                 }
                 Toggle("Find Parameters Inside Quoted Strings", isOn: $insideStrings)
             }
-            Button("Save Favorite") { favoriteSheet = true }
-        }.disabled(tab.busy || !workspace.connected || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }.padding(.horizontal, 6).frame(height: 28).background(BrowserChrome.panel).disabled(tab.busy || !workspace.connected || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         if tab.cancellation != nil {
             HStack {
                 Button("Stop Query") { Task { await workspace.stop(tab) } }.disabled(tab.stopRequested)

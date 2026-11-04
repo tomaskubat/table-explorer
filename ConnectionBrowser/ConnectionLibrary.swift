@@ -28,7 +28,8 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
 
     var detail: String {
         if driver == .sqlite { return filePath }
-        return [(ssh == nil ? "" : "SSH · ") + (usesSocket ? socketPath : "\(host):\(port)"), database].filter { !$0.isEmpty }.joined(separator: " · ")
+        let address = ssh != nil ? "SSH" : usesSocket ? socketPath : host + (port == "3306" ? "" : ":" + port)
+        return [address, database].filter { !$0.isEmpty }.joined(separator: " : ")
     }
 }
 

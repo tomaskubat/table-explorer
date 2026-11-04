@@ -26,6 +26,16 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -destination 'platform=macOS,arch=arm64' -parallel-testing-enabled NO
 ```
 
+To run just the screenshot comparison while the regular app is open, use a separate build directory and bundle identifier. The test creates a temporary sample database and still uses the Mac’s foreground keyboard and mouse.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
+  -project ConnectionBrowser.xcodeproj -scheme ConnectionBrowser -configuration Release \
+  -destination 'platform=macOS,arch=arm64' -parallel-testing-enabled NO \
+  -derivedDataPath .build/VisualChecks CONNECTION_BROWSER_BUNDLE_SUFFIX=.visual \
+  -only-testing:ConnectionBrowserUITests/WorkspaceLayoutTests
+```
+
 ## Files and sessions
 
 File → Open SQL File opens a document from Saved Connections or a query tab in the active workspace. ⌘S saves the text in an SQL editor. In a data tab it opens the pending-changes preview. Window → Show Workspaces switches between open sessions.

@@ -15,12 +15,13 @@ struct ConnectionBrowserApp: App {
         Window("Saved Connections", id: "connections") {
             SavedConnectionsView(library: library, workspaces: workspaces).modifier(BrowserAppearance())
         }
-        .defaultSize(width: 700, height: 420)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1111, height: 826)
         .windowResizability(.contentMinSize)
 
         WindowGroup("Workspace", for: UUID.self) { $id in
             if let id, let workspace = workspaces.sessions[id] {
-                WorkspaceView(workspace: workspace).modifier(BrowserAppearance())
+                WorkspaceView(workspace: workspace, registry: workspaces).modifier(BrowserAppearance())
                     .onDisappear {
                         workspace.releaseRecovery()
                         workspaces.sessions[id] = nil
@@ -30,7 +31,8 @@ struct ConnectionBrowserApp: App {
                 ContentUnavailableView("Session Closed", systemImage: "bolt.slash", description: Text("Open a saved connection to reconnect."))
             }
         }
-        .defaultSize(width: 1180, height: 720)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1280, height: 760)
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
         .commands { WorkspaceCommands() }

@@ -21,7 +21,7 @@ struct MaintenanceView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(action == .backup ? "Back Up Database" : "Restore Database").font(.title2)
+            Text(action == .backup ? "Back Up Database" : "Restore Database").font(.headline).frame(maxWidth: .infinity)
             LabeledContent("Connection", value: workspace.profile.name)
             LabeledContent("Database", value: workspace.database)
             if let review {
@@ -74,7 +74,7 @@ struct MaintenanceView: View {
                     }
                 }
             }
-        }.padding(20).frame(width: 560, height: 390).interactiveDismissDisabled(busy)
+        }.padding(20).frame(width: 660, height: action == .backup ? 500 : 420).background(BrowserChrome.paper).interactiveDismissDisabled(busy)
         .onAppear { selectedTool = BrowserPreferences.defaults.string(forKey: action == .backup ? "dumpTool" : "restoreTool") ?? "" }
     }
 

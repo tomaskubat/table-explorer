@@ -23,13 +23,24 @@ struct SavedConnectionsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 8) {
-                Image(systemName: "externaldrive.fill").font(.system(size: 46)).foregroundStyle(.orange).accessibilityHidden(true)
-                Text("Connection Browser").font(.title2.weight(.light))
-                Text("Saved connections").font(.subheadline).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                Spacer()
+                LibraryMark().frame(width: 96, height: 76)
+                Text("Connection Browser").font(.system(size: 23, weight: .light)).padding(.top, 12)
+                Text("Build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))
+                    .font(.system(size: 13, weight: .light)).foregroundStyle(.secondary).padding(.top, 11)
+                let count = library.groups.reduce(0) { $0 + $1.connections.count }
+                Text("\(count) saved connections").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary).padding(.top, 17)
+                HStack(spacing: 5) {
+                    libraryAction("Export", transfer: .export) { export(library.groups) }
+                    libraryAction("Import", transfer: .importProfiles) { importProfiles() }
+                    libraryAction("New Group", transfer: nil) { editor = .group(ConnectionGroup(name: "")) }
+                }.padding(.top, 27)
+                Spacer()
             }
-            .frame(width: 190).frame(maxHeight: .infinity).background(Color(nsColor: .windowBackgroundColor))
-            Divider()
+            .frame(width: 250).frame(maxHeight: .infinity)
+            .background { BrowserChrome.panel.gesture(WindowDragGesture()) }
             VStack(spacing: 0) {
                 if let issue = library.loadError { Text(issue).foregroundStyle(.red).padding(8) }
                 List(selection: $selection) {
@@ -46,22 +57,23 @@ struct SavedConnectionsView: View {
                         Task { await connectSaved(profile, group: group) }
                     }
                 }
-                .listStyle(.inset)
-                .environment(\.defaultMinListRowHeight, 32)
-                Divider()
+                .listStyle(.plain).scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 37)
                 HStack {
-                    Button("New Connection", systemImage: "plus") { newProfile(in: selectedGroup) }
-                        .disabled(library.groups.isEmpty)
-                    Button("New Group", systemImage: "folder.badge.plus") { editor = .group(ConnectionGroup(name: "")) }
+                    Button("Create a new connection…") { newProfile(in: selectedGroup) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .disabled(library.groups.isEmpty).accessibilityLabel("New Connection")
                     Spacer()
                     Menu("Library", systemImage: "ellipsis.circle") {
+                        Button("New Group…") { editor = .group(ConnectionGroup(name: "")) }
                         Button("Import Connections…") { importProfiles() }
                         Button("Export All Connections…") { export(library.groups) }
-                    }.menuStyle(.borderlessButton).fixedSize()
-                }.padding(8)
-            }
+                    }.menuStyle(.borderlessButton).labelStyle(.iconOnly).fixedSize().help("Library actions")
+                }.padding(.horizontal, 11).frame(height: 28)
+            }.padding(.top, 19).background(BrowserChrome.paper)
         }
-        .frame(minWidth: 560, minHeight: 300)
+        .ignoresSafeArea(.container, edges: .top)
+        .frame(minWidth: 620, minHeight: 380)
         .sheet(item: $editor) { editor in
             switch editor {
             case .choose(let group):
@@ -86,6 +98,21 @@ struct SavedConnectionsView: View {
                 Text("Remove \(group.name) and its \(group.connections.count) saved profiles? Database files and servers are kept.")
             } else { Text("Remove this saved profile? Its database is kept.") }
         }
+    }
+
+    private enum Transfer { case importProfiles, export }
+
+    private func libraryAction(_ title: String, transfer: Transfer?, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            VStack(spacing: 8) {
+                if let transfer { LibraryTransferIcon(importing: transfer == .importProfiles) }
+                else {
+                    Image(systemName: "folder.fill.badge.plus").font(.system(size: 32)).symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.purple).frame(width: 43, height: 37)
+                }
+                Text(title).font(.system(size: 12)).fixedSize()
+            }.frame(width: 70, height: 66).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(title == "New Group" ? title : title + " Connections").help(title == "New Group" ? "Create a connection group" : title + " connection profiles")
     }
 
     private func findProfile(_ id: UUID) -> (ConnectionProfile, UUID)? {
@@ -198,32 +225,29 @@ private struct ConnectionGroupSection: View {
         DisclosureGroup(isExpanded: $expanded) {
             ForEach(group.connections) { profile in
                 HStack(spacing: 9) {
-                    Text(profile.driver == .mariaDB ? "Mr" : "Sq").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white).frame(width: 26, height: 26).background(profile.badgeColor, in: Circle())
-                        .accessibilityLabel(profile.driver.rawValue)
+                    DriverBadge(driver: profile.driver)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
-                            Text(profile.name)
-                            if !profile.environment.isEmpty {
-                                Text(profile.environment).font(.caption2).padding(.horizontal, 3)
-                                    .overlay { RoundedRectangle(cornerRadius: 2).strokeBorder(lineWidth: 0.8) }
-                                    .foregroundStyle(profile.environmentColor)
+                            Text(profile.name).font(.system(size: 14)).lineLimit(1)
+                            EnvironmentBadge(profile: profile)
+                            if let tag = profile.tagColor {
+                                Circle().fill(profile.badgeColor).frame(width: 5, height: 5).accessibilityLabel(tag + " color tag")
                             }
                         }
-                        Text(profile.detail).font(.caption).foregroundStyle(.secondary)
+                        Text(profile.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
-                }.frame(height: 33).draggable(profile.id.uuidString).tag(profile.id).listRowSeparator(.hidden)
+                }.frame(height: 37).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6)).draggable(profile.id.uuidString).tag(profile.id).listRowSeparator(.hidden)
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: group.icon ?? "powerplug.fill").frame(width: 26, height: 26)
-                    .overlay { Circle().strokeBorder(lineWidth: 1.4) }.foregroundStyle(.orange).accessibilityHidden(true)
-                Text(group.name).font(.headline)
-            }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 32)
+                Image(systemName: group.icon ?? "powerplug.fill").font(.system(size: 15, weight: .semibold)).rotationEffect(.degrees(group.icon == nil || group.icon == "powerplug.fill" ? -90 : 0)).frame(width: 30, height: 30)
+                    .overlay { Circle().strokeBorder(lineWidth: 1.9) }.foregroundStyle(.orange).accessibilityHidden(true)
+                Text(group.name).font(.system(size: 14, weight: .semibold))
+            }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 37)
                 .dropDestination(for: String.self) { values, _ in
                     guard values.count == 1, let id = UUID(uuidString: values[0]) else { return false }
                     move(id); return true
                 }
-        }.tag(group.id).listRowSeparator(.hidden)
+        }.listRowInsets(EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 6)).tag(group.id).listRowSeparator(.hidden)
     }
 }

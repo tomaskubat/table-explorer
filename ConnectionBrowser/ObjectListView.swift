@@ -10,10 +10,14 @@ struct ObjectListView: View {
         List(selection: $selection) {
             let pinned = visible.filter { workspace.notebook.isPinned($0, database: workspace.database) }
             if !pinned.isEmpty { Section("Pinned") { ForEach(pinned) { row($0) } } }
-            ForEach(DatabaseObject.Kind.allCases, id: \.self) { kind in
-                let objects = visible.filter { $0.kind == kind && !workspace.notebook.isPinned($0, database: workspace.database) }
-                if !objects.isEmpty {
-                    Section(kind.rawValue + "s") { ForEach(objects) { row($0) } }
+            if workspace.profile.driver == .sqlite && workspace.objects.count <= 8 {
+                ForEach(visible.filter { !workspace.notebook.isPinned($0, database: workspace.database) }.sorted { $0.name < $1.name }) { row($0) }
+            } else {
+                ForEach(DatabaseObject.Kind.allCases, id: \.self) { kind in
+                    let objects = visible.filter { $0.kind == kind && !workspace.notebook.isPinned($0, database: workspace.database) }
+                    if !objects.isEmpty {
+                        Section(kind.rawValue + "s") { ForEach(objects) { row($0) } }
+                    }
                 }
             }
         }
@@ -22,14 +26,21 @@ struct ObjectListView: View {
         } primaryAction: { objects in
             if let object = objects.first { Task { await workspace.open(object) } }
         }
-        .listStyle(.sidebar)
+        .listStyle(.plain).scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 23)
+        .font(.system(size: 12))
         .onChange(of: selection) {
             if let selection { workspace.focusArea = .items; Task { await workspace.open(selection) } }
         }
     }
     private func row(_ object: DatabaseObject) -> some View {
         let icons: [DatabaseObject.Kind: String] = [.table: "tablecells", .view: "eye", .procedure: "gearshape.2", .function: "function"]
-        return Label(object.name, systemImage: icons[object.kind] ?? "tablecells")
+        return HStack(spacing: 5) {
+            Image(systemName: icons[object.kind] ?? "tablecells").font(.system(size: 12, weight: .medium))
+                .foregroundStyle(object.kind == .table ? Color.blue : .purple).accessibilityHidden(true)
+            Text(object.name).font(.system(size: 12)).lineLimit(1)
+        }.padding(.leading, 8).frame(height: 23)
+            .listRowInsets(EdgeInsets(top: 0, leading: 7, bottom: 0, trailing: 4)).listRowSeparator(.hidden)
             .tag(object).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
     }
 

@@ -27,12 +27,9 @@ struct ExportView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Export Data").font(.title2)
-            Text("Source: \(workspace.profile.name) / \(workspace.database) / \(tab.title)")
+            Text(tab.object.map { "Export " + $0.name } ?? "Export Query Result").font(.headline).frame(maxWidth: .infinity)
+            Text(workspace.profile.name + " / " + workspace.database).font(.caption).foregroundStyle(.secondary)
             Group {
-                Picker("Format", selection: $format) {
-                    ForEach(ExportFormat.allCases, id: \.self) { Text($0.rawValue) }
-                }.pickerStyle(.segmented)
                 Picker("Rows", selection: $scope) {
                     Text(tab.object == nil ? "Displayed query result" : "Current page").tag(ExportScope.result)
                     if tab.selected != nil { Text("Selected rows").tag(ExportScope.selected) }
@@ -51,16 +48,21 @@ struct ExportView: View {
                         }
                     }.frame(maxHeight: 90)
                 }
-                if format == .csv { CSVOptionsView(settings: $csv, importing: false) }
-                if format == .sql {
-                    TextField("Target Table", text: $tableName).disabled(tab.object != nil)
-                    HStack {
-                        Toggle("Schema", isOn: $includeDDL).disabled(tab.object == nil)
-                        Toggle("Data", isOn: $includeData)
-                        Toggle("DROP statement", isOn: $includeDrop)
-                        Toggle("Compress with gzip", isOn: $gzip)
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Format", selection: $format) {
+                        ForEach(ExportFormat.allCases, id: \.self) { Text($0.rawValue) }
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 190).frame(maxWidth: .infinity)
+                    if format == .csv { CSVOptionsView(settings: $csv, importing: false) }
+                    if format == .sql {
+                        TextField("Target Table", text: $tableName).disabled(tab.object != nil)
+                        VStack(alignment: .leading) {
+                            Toggle("Schema", isOn: $includeDDL).disabled(tab.object == nil)
+                            Toggle("Data", isOn: $includeData)
+                            Toggle("DROP statement", isOn: $includeDrop)
+                            Toggle("Compress with gzip", isOn: $gzip)
+                        }
                     }
-                }
+                }.padding(12).frame(maxWidth: .infinity).background(BrowserChrome.panel, in: RoundedRectangle(cornerRadius: 5))
                 HStack {
                     TextField("Destination File", text: $file).accessibilityIdentifier("Destination File")
                     Button("Choose…") {
@@ -80,7 +82,7 @@ struct ExportView: View {
                     if FileManager.default.fileExists(atPath: file) { overwrite = true } else { start(overwrite: false) }
                 }.disabled(busy || included.isEmpty || !file.hasPrefix("/") || (format == .sql && (!includeData && !includeDDL && !includeDrop || tableName.isEmpty)))
             }
-        }.padding(18).frame(width: 550, height: 395)
+        }.padding(20).frame(width: 400, height: 530).background(BrowserChrome.paper)
         .interactiveDismissDisabled(busy)
         .confirmationDialog("Replace the existing export file?", isPresented: $overwrite) {
             Button("Replace", role: .destructive) { start(overwrite: true) }

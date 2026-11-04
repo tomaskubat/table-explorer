@@ -52,7 +52,7 @@ struct SQLTextEditor: NSViewRepresentable {
         private static let keywords = "SELECT FROM WHERE JOIN LEFT RIGHT INNER OUTER GROUP ORDER BY LIMIT OFFSET INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE VIEW ALTER DROP BEGIN COMMIT ROLLBACK NULL AND OR NOT WITH EXPLAIN SHOW DISTINCT HAVING RETURNING".split(separator: " ").map(String.init)
 
         init(_ parent: SQLTextEditor) { self.parent = parent }
-        private static let tokens = try! NSRegularExpression(pattern: #"(?is)('(?:''|\\.|[^'])*'|"(?:\"\"|\\.|[^"])*"|(?:--[^\n]*|/\*.*?\*/))|\b(SELECT|FROM|WHERE|AS|JOIN|ON|GROUP|ORDER|BY|LIMIT|OFFSET|HAVING|UNION|ALL|NULL|IS|IN|AND|OR|NOT|UPDATE|SET|INSERT|INTO|VALUES|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|BEGIN|COMMIT|ROLLBACK|WITH|EXPLAIN|SHOW)\b"#)
+
         func highlight(_ editor: NSTextView) {
             guard let layout = editor.layoutManager else { return }
             let range = NSRange(location: 0, length: (editor.string as NSString).length)
@@ -62,8 +62,8 @@ struct SQLTextEditor: NSViewRepresentable {
             layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
             current = nil; markStatement(editor)
             guard parent.highlighting else { return }
-            for match in Self.tokens.matches(in: editor.string, range: range) {
-                layout.addTemporaryAttribute(.foregroundColor, value: match.range(at: 2).location == NSNotFound ? NSColor.systemGreen : .systemBlue, forCharacterRange: match.range)
+            for match in SQLSyntax.tokens.matches(in: editor.string, range: range) {
+                layout.addTemporaryAttribute(.foregroundColor, value: SQLSyntax.ink(for: match, in: editor.string), forCharacterRange: match.range)
             }
         }
         func markStatement(_ editor: NSTextView) {
@@ -101,5 +101,23 @@ struct SQLTextEditor: NSViewRepresentable {
             parent.selection = editor.selectedRange()
             markStatement(editor)
         }
+    }
+}
+
+enum SQLSyntax {
+    static let tokens = try! NSRegularExpression(pattern: #"(?is)('(?:''|\\.|[^'])*'|"(?:\"\"|\\.|[^"])*"|(?:--[^\n]*|/\*.*?\*/))|\b(SELECT|FROM|WHERE|AS|JOIN|ON|GROUP|ORDER|BY|LIMIT|OFFSET|HAVING|UNION|ALL|NULL|IS|IN|AND|OR|NOT|UPDATE|SET|INSERT|INTO|VALUES|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|BEGIN|COMMIT|ROLLBACK|WITH|EXPLAIN|SHOW)\b"#)
+    static func ink(for token: NSTextCheckingResult, in sql: String) -> NSColor {
+        if token.range(at: 2).location != NSNotFound { return .systemBlue }
+        let first = (sql as NSString).character(at: token.range.location)
+        return first == 45 || first == 47 ? .systemGreen : .systemPink
+    }
+
+    static func colored(_ sql: String) -> AttributedString {
+        var text = AttributedString(sql)
+        for token in tokens.matches(in: sql, range: NSRange(sql.startIndex..., in: sql)) {
+            guard let range = Range(token.range, in: sql), let colorRange = Range(range, in: text) else { continue }
+            text[colorRange].foregroundColor = Color(nsColor: ink(for: token, in: sql))
+        }
+        return text
     }
 }

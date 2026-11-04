@@ -7,8 +7,14 @@ struct GroupEditor: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Connection Group").font(.title2)
-            TextField("Group Name", text: $group.name).accessibilityIdentifier("Group Name")
+            HStack(spacing: 13) {
+                Image(systemName: group.icon ?? "powerplug.fill").font(.system(size: 23))
+                    .frame(width: 43, height: 43).overlay { Circle().strokeBorder(lineWidth: 2.2) }.foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Group name").font(.callout)
+                    TextField("Production servers…", text: $group.name).accessibilityIdentifier("Group Name")
+                }
+            }
             Picker("Group Icon", selection: Binding(get: { group.icon ?? "powerplug.fill" }, set: { group.icon = $0 })) {
                 Label("Plug", systemImage: "powerplug.fill").tag("powerplug.fill")
                 Label("Folder", systemImage: "folder.fill").tag("folder.fill")
@@ -29,7 +35,7 @@ struct GroupEditor: View {
                     } catch { self.error = error.localizedDescription }
                 }.keyboardShortcut(.defaultAction).disabled(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(20).frame(width: 340)
+        }.padding(20).frame(width: 340).background(BrowserChrome.paper)
     }
 }
 
@@ -59,7 +65,8 @@ struct ProfileEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Connection Settings").font(.title2); Spacer(); bootstrapButton }
+            Text(sshPage ? "SSH Tunnel" : profile.driver.rawValue + " Connection")
+                .font(.system(size: 15, weight: .medium)).frame(maxWidth: .infinity)
             if profile.ssh != nil {
                 Picker("Connection Options", selection: $sshPage) {
                     Text("Database").tag(false)
@@ -71,12 +78,12 @@ struct ProfileEditor: View {
                     if sshPage, let ssh = Binding($profile.ssh) { sshFields(ssh) }
                     else { databaseFields }
                 }.padding(.horizontal, 2)
-            }.frame(height: profile.driver == .sqlite ? 200 : (sshPage ? 310 : 435)).disabled(busy)
+            }.frame(minHeight: profile.driver == .sqlite ? 180 : (sshPage ? 245 : 332), maxHeight: profile.driver == .sqlite ? 205 : 355).disabled(busy)
             if let error {
                 Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("connectionError")
             } else if succeeded { Text("Connection succeeded").foregroundStyle(.green) }
             HStack {
-                Button("Test Connection") { Task { await connect(testOnly: true) } }.disabled(!canConnect || busy)
+                bootstrapButton
                 if busy { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
@@ -84,11 +91,13 @@ struct ProfileEditor: View {
                     do { try library.save(profile, in: groupID, password: password, sshPassword: sshPassword); dismiss() }
                     catch { self.error = error.localizedDescription }
                 }.disabled(!canSave || busy)
-                Button("Save and Connect") { Task { await connect(testOnly: false) } }
-                    .keyboardShortcut(.defaultAction).disabled(!canSave || !canConnect || busy)
+                Button("Test") { Task { await connect(testOnly: true) } }
+                    .accessibilityLabel("Test Connection").disabled(!canConnect || busy)
+                Button("Connect") { Task { await connect(testOnly: false) } }
+                    .accessibilityLabel("Save and Connect").keyboardShortcut(.defaultAction).disabled(!canSave || !canConnect || busy)
             }
         }
-        .padding(22).frame(width: 540)
+        .padding(20).frame(width: 500).background(BrowserChrome.paper)
         .confirmationDialog("Create a new SQLite database at this path?", isPresented: $confirmCreate) {
             Button("Create File") {
                 do { try DatabaseSession.createSQLite(at: profile.filePath); createdFile = true; error = nil }
@@ -128,7 +137,6 @@ struct ProfileEditor: View {
     }
 
     @ViewBuilder private var databaseFields: some View {
-        LabeledContent("Driver", value: profile.driver.rawValue)
         TextField("Connection Name", text: $profile.name).accessibilityIdentifier("Connection Name")
         Picker("Group", selection: $groupID) {
             ForEach(library.groups) { Text($0.name).tag($0.id) }
@@ -147,8 +155,13 @@ struct ProfileEditor: View {
             Toggle("Use Unix socket", isOn: $profile.usesSocket)
             if profile.usesSocket { TextField("Socket Path", text: $profile.socketPath).accessibilityIdentifier("Socket Path") }
             else {
-                TextField("Host", text: $profile.host).accessibilityIdentifier("Host")
-                TextField("Port", text: $profile.port).accessibilityIdentifier("Port")
+                LabeledContent("Host") {
+                    HStack {
+                        TextField("Host", text: $profile.host).labelsHidden().accessibilityIdentifier("Host")
+                        Text("Port")
+                        TextField("Port", text: $profile.port).labelsHidden().frame(width: 70).accessibilityIdentifier("Port")
+                    }
+                }
             }
             TextField("User", text: $profile.user).accessibilityIdentifier("User")
             SecureField("Password", text: $password).accessibilityIdentifier("Password")

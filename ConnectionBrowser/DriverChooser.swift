@@ -28,36 +28,34 @@ struct DriverChooser: View {
                 }.keyboardShortcut(.defaultAction).disabled(address.isEmpty) }
             }.padding(20).frame(width: 450)
         case .choose:
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Choose a database driver").font(.title2)
-                HStack(spacing: 14) {
+            VStack(spacing: 16) {
+                HStack(alignment: .top, spacing: 4) {
                     ForEach(DatabaseDriver.allCases, id: \.self) { choice in
                         Button {
                             driver = choice
                         } label: {
-                            VStack(spacing: 8) {
-                                Text(choice == .mariaDB ? "Mr" : "Sq").font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(.white).frame(width: 44, height: 44)
-                                    .background(choice == .mariaDB ? Color.teal : .blue, in: Circle())
-                                Text(choice.rawValue)
-                            }.frame(width: 120, height: 85).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(driver == choice ? .accentColor : .secondary)
-                        .accessibilityIdentifier("driver-" + choice.rawValue)
+                            VStack(spacing: 7) {
+                                DriverBadge(driver: choice, diameter: 40)
+                                Text(choice.rawValue).font(.system(size: 13))
+                            }.frame(width: 88, height: 85)
+                                .background(driver == choice ? Color.accentColor.opacity(0.13) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("driver-" + choice.rawValue)
                         .accessibilityAddTraits(driver == choice ? .isSelected : [])
                     }
-                }
-                HStack {
-                    Button("New Group") { step = .group }
-                    Button("Import from URL") { step = .address }
                     Spacer()
+                }.padding(10).frame(maxWidth: .infinity, minHeight: 115, alignment: .topLeading)
+                    .background(BrowserChrome.paper).border(BrowserChrome.line, width: 0.6)
+                HStack {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Import from URL") { step = .address }
+                    Button("New Group") { step = .group }
                     Button("Create") {
                         if let driver { profile.driver = driver; step = .settings }
                     }.keyboardShortcut(.defaultAction).disabled(driver == nil)
                 }
-            }.padding(20).frame(width: 470)
+            }.padding(18).frame(width: 480).background(BrowserChrome.paper)
         }
     }
 }

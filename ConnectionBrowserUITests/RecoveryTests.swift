@@ -15,7 +15,7 @@ final class RecoveryTests: XCTestCase {
         app.textFields["Connection URL"].replaceText(with: db.absoluteString); app.buttons["Import"].click(); app.buttons["Save and Connect"].click()
         let window = app.windows["recovery — recovery.sqlite"]
         XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 6))
-        window.buttons["Row Detail"].click(); XCTAssertFalse(window.staticTexts["row-detail-header"].exists)
+        window.buttons["Row Detail"].click(); XCTAssertFalse(window.textFields["Search for field"].exists)
         window.buttons["New Query"].click()
         let editor = window.textViews["SQL Editor"], sql = "SELECT 'restored buffer' AS value;"
         editor.replaceText(with: sql)
@@ -27,7 +27,7 @@ final class RecoveryTests: XCTestCase {
         app.terminate(); app.launch()
         app.windows["Saved Connections"].staticTexts["recovery"].doubleClick()
         XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
-        XCTAssertFalse(window.staticTexts["row-detail-header"].exists)
+        XCTAssertFalse(window.textFields["Search for field"].exists)
         XCTAssertFalse(editor.exists)
         app.menuBars.menuBarItems["File"].click(); app.menuItems["Recover SQL Draft…"].click()
         app.buttons["Recover Text"].click()

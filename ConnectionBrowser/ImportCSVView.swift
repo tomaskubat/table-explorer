@@ -38,8 +38,8 @@ struct ImportCSVView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("Import CSV").font(.title2)
-            Text(workspace.profile.name + " / " + workspace.database).foregroundStyle(.secondary)
+            Text("Import CSV Wizard").font(.headline).frame(maxWidth: .infinity)
+            Text(workspace.profile.name + " / " + workspace.database).font(.caption).foregroundStyle(.secondary)
             Group {
                 HStack {
                     TextField("Source File", text: $file).accessibilityIdentifier("Source File")
@@ -55,10 +55,9 @@ struct ImportCSVView: View {
                     }.accessibilityIdentifier("Import Destination")
                     if target == .newTable { TextField("New Table Name", text: $tableName).accessibilityIdentifier("New Table Name") }
                 }
-                CSVOptionsView(settings: $settings, importing: true)
                 Button("Preview Import") { load() }.disabled(file.isEmpty)
                 if document != nil {
-                    Text("Field mapping").font(.headline)
+                    Text("Match fields").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal) {
                         HStack {
                             ForEach(preview.columns.indices, id: \.self) { index in
@@ -85,8 +84,9 @@ struct ImportCSVView: View {
                             .font(.system(.caption, design: .monospaced)).textSelection(.enabled).accessibilityIdentifier("importDDL")
                     }
                     Text("Preview · \(preview.rows.count) rows\(preview.truncated ? " (first 100)" : "")").font(.caption)
-                    ResultTable(result: preview, selected: .constant(nil))
+                    ResultTable(result: preview, selected: .constant(nil)).border(BrowserChrome.line, width: 0.6)
                 } else { Spacer() }
+                CSVOptionsView(settings: $settings, importing: true)
             }.disabled(importing)
             if let error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("importError") }
             HStack {
@@ -95,7 +95,7 @@ struct ImportCSVView: View {
                 Button(target == .newTable ? "Create and Import" : "Import Rows") { startImport() }.disabled(!ready)
             }
         }
-        .padding(18).frame(width: 680, height: target == .newTable ? 560 : 470)
+        .padding(20).frame(width: 700, height: target == .newTable ? 580 : 518).background(BrowserChrome.paper)
         .onChange(of: file) { version = UUID(); document = nil; error = nil }
         .onChange(of: settings) { if !file.isEmpty { load() } }
         .onChange(of: target) { if !file.isEmpty { load() } }
@@ -167,24 +167,36 @@ struct CSVOptionsView: View {
     @Binding var settings: CSVSettings
     let importing: Bool
     var body: some View {
-        HStack {
-            Picker("Delimiter", selection: $settings.delimiter) {
-                Text("Comma").tag(","); Text("Semicolon").tag(";"); Text("Tab").tag("\t")
-            }.accessibilityIdentifier("CSV Delimiter")
-            Picker("Quote", selection: $settings.quote) { Text("\"").tag("\""); Text("'").tag("'") }
-            if importing {
-                Picker("Encoding", selection: $settings.encoding) { ForEach(["UTF-8", "UTF-16", "Latin-1"], id: \.self) { Text($0) } }
-            } else {
-                Picker("Line ending", selection: $settings.lineEnding) { Text("LF").tag("LF"); Text("CRLF").tag("CRLF") }.accessibilityIdentifier("CSV Line Ending")
+        if importing {
+            HStack {
+                delimiter; quote
+                Picker("Encoding", selection: $settings.encoding) {
+                    ForEach(["UTF-8", "UTF-16", "Latin-1"], id: \.self) { Text($0) }
+                }
             }
-        }
-        HStack {
-            Toggle("Header row", isOn: $settings.header)
-            TextField("NULL token", text: $settings.nullToken).frame(width: 115)
-            if !importing {
+            HStack { Toggle("Header row", isOn: $settings.header); nullToken; Spacer() }
+        } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle("Header row", isOn: $settings.header)
                 Toggle("Quote all fields", isOn: $settings.quoteAll)
                 Toggle("Decimal comma", isOn: $settings.decimalComma)
+                Form {
+                    delimiter; quote
+                    Picker("Line ending", selection: $settings.lineEnding) {
+                        Text("LF").tag("LF"); Text("CRLF").tag("CRLF")
+                    }.accessibilityIdentifier("CSV Line Ending")
+                    nullToken
+                }
             }
         }
     }
+    private var delimiter: some View {
+        Picker("Delimiter", selection: $settings.delimiter) {
+            Text("Comma").tag(","); Text("Semicolon").tag(";"); Text("Tab").tag("\t")
+        }.accessibilityIdentifier("CSV Delimiter")
+    }
+    private var quote: some View {
+        Picker("Quote", selection: $settings.quote) { Text("\"").tag("\""); Text("'").tag("'") }
+    }
+    private var nullToken: some View { TextField("NULL token", text: $settings.nullToken).frame(maxWidth: 140) }
 }

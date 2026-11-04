@@ -35,7 +35,7 @@ struct PreferencesView: View {
     @AppStorage("sqliteBusySeconds", store: BrowserPreferences.defaults) private var busy = 3
     @AppStorage("theme", store: BrowserPreferences.defaults) private var theme = "System"
     @AppStorage("queryFontSize", store: BrowserPreferences.defaults) private var font = 13.0
-    @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFont = 12.0
+    @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFont = 14.0
     @AppStorage("highlightSQL", store: BrowserPreferences.defaults) private var highlight = true
     @AppStorage("indentSpaces", store: BrowserPreferences.defaults) private var indent = 4
     @AppStorage("csvSeparator", store: BrowserPreferences.defaults) private var separator = ","
@@ -47,17 +47,32 @@ struct PreferencesView: View {
     @State private var locationError: String?
     var body: some View {
         TabView {
-            Form {
-                Picker("Rows per new table page", selection: $pageSize) { ForEach([25, 100, 300, 500, 1000], id: \.self) { Text(String($0)) } }
-                    .accessibilityIdentifier("Default Page Size")
-                Stepper("SQL result limit: \(queryLimit) rows", value: $queryLimit, in: 100...100000, step: 100)
-                Stepper("Connection timeout: \(timeout) seconds", value: $timeout, in: 1...120)
-                Stepper("SQLite lock wait: \(busy) seconds", value: $busy, in: 0...60)
-                Divider()
-                Picker("Default CSV delimiter", selection: $separator) { Text("Comma").tag(","); Text("Semicolon").tag(";"); Text("Tab").tag("\t") }
-                Toggle("Include CSV header", isOn: $header)
-                TextField("CSV NULL token", text: $nullToken)
-            }.tabItem { Label("General", systemImage: "gearshape") }
+            VStack(alignment: .leading, spacing: 13) {
+                HStack(alignment: .top, spacing: 10) {
+                    GroupBox("Table Data") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("Rows per page", selection: $pageSize) {
+                                ForEach([25, 100, 300, 500, 1000], id: \.self) { Text(String($0)) }
+                            }.accessibilityIdentifier("Default Page Size")
+                            Stepper("SQL result limit: \(queryLimit)", value: $queryLimit, in: 100...100000, step: 100)
+                        }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    GroupBox("Connections") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Stepper("Connection timeout: \(timeout) s", value: $timeout, in: 1...120)
+                            Stepper("SQLite lock wait: \(busy) s", value: $busy, in: 0...60)
+                        }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                GroupBox("CSV default options") {
+                    Form {
+                        Picker("Delimiter", selection: $separator) { Text("Comma").tag(","); Text("Semicolon").tag(";"); Text("Tab").tag("\t") }
+                        Toggle("Include CSV header", isOn: $header)
+                        TextField("NULL token", text: $nullToken)
+                    }.padding(6).frame(maxWidth: 350)
+                }
+                Spacer()
+            }.padding(12).tabItem { Label("General", systemImage: "gearshape") }
             Form {
                 Picker("Appearance", selection: $theme) { ForEach(["System", "Light", "Dark"], id: \.self) { Text($0) } }
                 Stepper("Editor font: \(Int(font)) pt", value: $font, in: 9...28)
@@ -95,7 +110,7 @@ struct PreferencesView: View {
                     GridRow { Text(name); Text(binding).monospaced(); Text(scope).foregroundStyle(.secondary) }
                 }
             }.tabItem { Label("Shortcuts", systemImage: "keyboard") }
-        }.padding(18).frame(width: 590, height: 345).modifier(BrowserAppearance())
+        }.padding(16).frame(width: 645, height: 390).background(BrowserChrome.paper).modifier(BrowserAppearance())
     }
     private static let keys = [
         ("Saved Connections", "⌘N", "Application"), ("New Query", "⌘T", "Workspace"),
