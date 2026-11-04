@@ -78,6 +78,27 @@ enum SQLDocument {
         return current.map { [$0.sql] } ?? []
     }
 
+    @MainActor static func toggleComment(in tab: WorkspaceTab) {
+        let source = tab.sql as NSString
+        let selection = tab.textSelection
+        let start = min(source.length, selection.location)
+        let extent = min(max(0, selection.length - 1), source.length - start)
+        let range = source.lineRange(for: NSRange(location: start, length: extent))
+        let segment = source.substring(with: range)
+        let newline = segment.hasSuffix("\n")
+        let body = newline ? String(segment.dropLast()) : segment
+        let lines = body.components(separatedBy: "\n")
+        let uncomment = lines.allSatisfy { $0.trimmingCharacters(in: .whitespaces).hasPrefix("--") }
+        let changed = lines.map { line in
+            let indent = line.prefix { $0 == " " || $0 == "\t" }
+            let content = line.dropFirst(indent.count)
+            if uncomment { return String(indent) + (content.hasPrefix("-- ") ? String(content.dropFirst(3)) : String(content.dropFirst(2))) }
+            return String(indent) + "-- " + content
+        }.joined(separator: "\n") + (newline ? "\n" : "")
+        tab.sql = source.replacingCharacters(in: range, with: changed)
+        tab.textSelection = NSRange(location: range.location, length: changed.utf16.count)
+    }
+
     static func requiresConfirmation(_ sql: String) -> Bool {
         // Only trivially read-only statements bypass the direct-SQL prompt.
         // Compound scripts are checked statement by statement before any run.

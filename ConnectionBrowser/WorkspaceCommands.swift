@@ -16,6 +16,20 @@ struct WorkspaceCommands: Commands {
             Button("Saved Connections") { openWindow(id: "connections") }.keyboardShortcut("n")
             Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
         }
+        CommandGroup(after: .pasteboard) {
+            Button("Add Row") {
+                if gridFocused, let tab = workspace?.active { tab.editor = RowChange(original: nil) }
+            }.keyboardShortcut("i").disabled(!gridFocused || workspace?.active?.canInsert != true)
+            Button("Duplicate Rows") {
+                if gridFocused, let tab = workspace?.active { tab.duplicate(tab.selectedRows) }
+            }.keyboardShortcut("d").disabled(!gridFocused || workspace?.active?.canInsert != true || workspace?.active?.selectedRows.isEmpty != false)
+            Button("Undo Staged Change") {
+                if gridFocused { workspace?.active?.undoChange() }
+            }.disabled(!gridFocused || workspace?.active?.editHistory.isEmpty != false)
+            Button("Toggle Line Comment") {
+                if sqlFocused, let tab = workspace?.active { SQLDocument.toggleComment(in: tab) }
+            }.keyboardShortcut("/").disabled(!sqlFocused)
+        }
         CommandGroup(after: .sidebar) {
             Toggle("Item List", isOn: flag(\.showItems)).disabled(workspace == nil)
             Toggle("Row Detail", isOn: flag(\.showDetails)).disabled(workspace == nil)
@@ -41,6 +55,15 @@ struct WorkspaceCommands: Commands {
             Button("Reconnect") { if let workspace { Task { await workspace.reconnect() } } }
                 .disabled(workspace?.connected != false || workspace?.reconnecting == true)
         }
+    }
+    private var gridFocused: Bool {
+        workspace?.focusArea == .grid && workspace?.connected == true && workspace?.active?.showStructure == false
+            && NSApp.keyWindow?.firstResponder is DataGrid.GridTable
+    }
+    private var sqlFocused: Bool {
+        guard let workspace, let tab = workspace.active, tab.object == nil,
+              let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
+        return textView.accessibilityIdentifier() == "SQL Editor"
     }
     private func flag(_ key: ReferenceWritableKeyPath<Workspace, Bool>) -> Binding<Bool> {
         Binding(get: { workspace?[keyPath: key] ?? false }, set: { workspace?[keyPath: key] = $0 })

@@ -5,6 +5,7 @@ struct RowChange: Identifiable, Sendable {
     let original: [String: SQLValue]?
     var changes: [String: SQLValue]
     var deleted = false
+    var defaults: Set<String> = []
     init(id: UUID = UUID(), original: [String: SQLValue]?, changes: [String: SQLValue] = [:]) {
         self.id = id; self.original = original; self.changes = changes
     }
@@ -19,8 +20,18 @@ struct RowStatement: Sendable {
 enum ChangeSQL {
     static func statement(_ change: RowChange, object: DatabaseObject, schema: ObjectSchema, driver: DatabaseDriver) throws -> RowStatement {
         let name = DatabaseSession.identifier(object.name)
-        let fields = schema.columns.filter { !($0.generated) && change.changes[$0.name] != nil }.map(\.name)
-        let values = fields.map { change.changes[$0]! }
+        let affected = schema.columns.filter { !$0.generated && (change.changes[$0.name] != nil || (change.original != nil && change.defaults.contains($0.name))) }
+        let fields = affected.map(\.name)
+        let values = affected.compactMap { change.defaults.contains($0.name) ? nil : change.changes[$0.name] }
+        func replacements(literals: Bool) throws -> [String] {
+            try affected.map { column in
+                if change.defaults.contains(column.name) {
+                    guard column.defaultSQL != nil || column.nullable else { throw BrowserError("\(column.name) has no default value.") }
+                    return driver == .mariaDB ? "DEFAULT" : "(" + (column.defaultSQL ?? "NULL") + ")"
+                }
+                return literals ? literal(change.changes[column.name]!, driver: driver) : "?"
+            }
+        }
         guard object.kind == .table, schema.transactional else { throw BrowserError("This object does not support transactional row editing.") }
 
         let form: ([String], [String]) -> String
@@ -43,8 +54,8 @@ enum ChangeSQL {
             }
         }
         let boundValues = change.deleted ? [] : values
-        return RowStatement(sql: form(boundValues.map { _ in "?" }, keys.map { _ in "?" }), bindings: boundValues + keys,
-                            preview: form(boundValues.map { literal($0, driver: driver) }, keys.map { literal($0, driver: driver) }) + ";")
+        return try RowStatement(sql: form(change.deleted ? [] : replacements(literals: false), keys.map { _ in "?" }), bindings: boundValues + keys,
+                                preview: form(change.deleted ? [] : replacements(literals: true), keys.map { literal($0, driver: driver) }) + ";")
     }
 
     static func literal(_ value: SQLValue, driver: DatabaseDriver) -> String {

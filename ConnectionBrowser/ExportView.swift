@@ -18,9 +18,9 @@ struct ExportView: View {
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(workspace: Workspace, tab: WorkspaceTab) {
+    init(workspace: Workspace, tab: WorkspaceTab, pageOnly: Bool = false) {
         self.workspace = workspace; self.tab = tab
-        _scope = State(initialValue: tab.object == nil ? .result : .filtered)
+        _scope = State(initialValue: tab.object == nil || pageOnly ? .result : .filtered)
         _included = State(initialValue: Set(tab.result.columns).subtracting(tab.hiddenColumns))
         _tableName = State(initialValue: tab.object?.name ?? "query_result")
     }
@@ -94,7 +94,7 @@ struct ExportView: View {
             read = TableRead(object: object, filters: scope == .filtered ? tab.appliedFilters : [], sortColumn: tab.sortColumn, descending: tab.descending, keyColumns: tab.schema?.key.map(\.name) ?? [])
             rows = []
         } else {
-            let selected = scope == .selected ? tab.selected.map { [$0] } ?? [] : Array(tab.result.rows.indices)
+            let selected = scope == .selected ? tab.selectedRows.sorted() : Array(tab.result.rows.indices)
             rows = selected.filter(tab.result.rows.indices.contains).map { row in indices.map { tab.result.rows[row][$0] } }
         }
         let request = ExportRequest(destination: URL(filePath: file), overwrite: overwrite, driver: workspace.profile.driver,

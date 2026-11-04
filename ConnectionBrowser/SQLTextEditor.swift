@@ -5,6 +5,7 @@ struct SQLTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var selection: NSRange
     var fontSize: Double = 13
+    var focusChanged: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -45,10 +46,13 @@ struct SQLTextEditor: NSViewRepresentable {
                 layout.addTemporaryAttribute(.foregroundColor, value: match.range(at: 2).location == NSNotFound ? NSColor.systemGreen : .systemBlue, forCharacterRange: match.range)
             }
         }
+        func textDidBeginEditing(_ notification: Notification) { parent.focusChanged(true) }
+        func textDidEndEditing(_ notification: Notification) { parent.focusChanged(false) }
         func textDidChange(_ notification: Notification) {
             guard let editor = notification.object as? NSTextView else { return }
             parent.text = editor.string
             parent.selection = editor.selectedRange()
+            parent.focusChanged(true)
             highlight(editor)
         }
         func textViewDidChangeSelection(_ notification: Notification) {

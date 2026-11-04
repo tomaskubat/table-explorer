@@ -71,15 +71,7 @@ extension DatabaseSession {
             case .json:
                 var record: [String: Any] = [:]
                 for (key, value) in zip(request.columns, values) {
-                    switch value {
-                    case .null: record[key] = NSNull()
-                    case .text(let text): record[key] = text
-                    case .integer(let text), .number(let text):
-                        let numeric = NSDecimalNumber(string: text, locale: Locale(identifier: "en_US_POSIX"))
-                        guard numeric != .notANumber else { throw BrowserError("Column \(key) contains a number outside JSON's supported range.") }
-                        record[key] = numeric
-                    case .blob(let bytes): record[key] = bytes.base64EncodedString()
-                    }
+                    record[key] = try value.jsonValue()
                 }
                 if written > 0 { try write(",") }
                 try write("\n" + String(decoding: JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]), as: UTF8.self))

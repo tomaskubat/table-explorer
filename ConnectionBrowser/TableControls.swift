@@ -48,9 +48,9 @@ struct TableControls: View {
                         Picker("Operator", selection: $filter.operation) {
                             ForEach(ColumnFilter.Operation.allCases, id: \.self) { Text($0.rawValue) }
                         }.labelsHidden().accessibilityLabel("Filter Operator")
-                        if filter.operation != .isNull {
+                        if filter.operation != .isNull && filter.operation != .notNull {
                             TextField(filter.operation == .raw ? "SQL predicate" : "Value", text: $filter.value)
-                                .accessibilityIdentifier("Filter Value")
+                                .accessibilityIdentifier("Filter Value").onChange(of: filter.value) { filter.typed = nil }
                         }
                         Button("Remove condition", systemImage: "minus.circle") { tab.filters.removeAll { $0.id == filter.id } }.labelStyle(.iconOnly)
                     }

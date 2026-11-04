@@ -1,12 +1,13 @@
 import Foundation
 
 struct ColumnFilter: Identifiable, Hashable, Sendable {
-    enum Operation: String, CaseIterable, Sendable { case contains = "Contains", equals = "Equals", isNull = "Is NULL", raw = "Raw SQL" }
+    enum Operation: String, CaseIterable, Sendable { case contains = "Contains", equals = "Equals", notEquals = "Not equal", less = "Less than", greater = "Greater than", isNull = "Is NULL", notNull = "Is not NULL", raw = "Raw SQL" }
     let id = UUID()
     var enabled = true
     var column: String
     var operation = Operation.contains
     var value = ""
+    var typed: SQLValue?
 }
 
 struct TablePage: Sendable {
@@ -27,7 +28,11 @@ struct TableRead: Sendable {
             let column = DatabaseSession.identifier(filter.column)
             switch filter.operation {
             case .isNull: return "\(column) IS NULL"
-            case .equals: parameters.append(.text(filter.value)); return "\(column) = ?"
+            case .notNull: return "\(column) IS NOT NULL"
+            case .equals, .notEquals, .less, .greater:
+                let operators: [ColumnFilter.Operation: String] = [.equals: "=", .notEquals: "<>", .less: "<", .greater: ">"]
+                parameters.append(filter.typed ?? .text(filter.value))
+                return "\(column) \(operators[filter.operation]!) ?"
             case .contains:
                 let escaped = filter.value.replacingOccurrences(of: "!", with: "!!")
                     .replacingOccurrences(of: "%", with: "!%").replacingOccurrences(of: "_", with: "!_")

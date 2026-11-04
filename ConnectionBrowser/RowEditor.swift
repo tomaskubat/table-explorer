@@ -19,6 +19,9 @@ struct RowActions: View {
         .sheet(item: $tab.editor) { draft in
             if let schema = tab.schema { RowEditor(draft: draft, schema: schema) { tab.stage($0) } }
         }
+        .sheet(item: $tab.cellEditor) { target in
+            CellEditor(target: target, tab: tab)
+        }
         .sheet(isPresented: $tab.previewShown) { ChangePreview(workspace: workspace, tab: tab) }
     }
 
@@ -26,15 +29,8 @@ struct RowActions: View {
         Button("Add Row") { tab.editor = RowChange(original: nil) }.disabled(!canWrite)
         Button("Edit Row") { tab.editor = selectedDraft }.disabled(!canEdit)
         Menu("Row Actions") {
-            Button("Duplicate Row") {
-                guard let index = tab.selected, let schema = tab.schema, tab.displayed.rows.indices.contains(index) else { return }
-                var values = Dictionary(uniqueKeysWithValues: zip(tab.result.columns, tab.displayed.rows[index]))
-                for column in schema.columns where column.generated || column.automatic { values.removeValue(forKey: column.name) }
-                tab.stage(RowChange(original: nil, changes: values))
-            }.disabled(!canWrite || tab.selected == nil)
-            Button("Mark for Deletion") {
-                if var draft = selectedDraft { draft.deleted = true; tab.stage(draft) }
-            }.disabled(!canEdit)
+            Button("Duplicate Rows") { tab.duplicate(tab.selectedRows) }.disabled(!canWrite || tab.selectedRows.isEmpty)
+            Button("Mark for Deletion…") { tab.deletionReview = tab.deletions(tab.selectedRows) }.disabled(!canEdit)
             Button("Undo Last Change") { tab.undoChange() }.disabled(tab.editHistory.isEmpty)
         }
     }
@@ -63,7 +59,9 @@ private struct RowEditor: View {
         self.draft = draft; self.schema = schema; self.save = save
         let current = (draft.original ?? [:]).merging(draft.changes) { _, new in new }
         _values = State(initialValue: current.mapValues { $0 == .null ? "" : $0.display })
-        _modes = State(initialValue: current.mapValues { $0 == .null ? .null : .value })
+        var modes = current.mapValues { $0 == .null ? Input.null : .value }
+        for name in draft.defaults { modes[name] = .omitted }
+        _modes = State(initialValue: modes)
     }
 
     var body: some View {
@@ -80,7 +78,7 @@ private struct RowEditor: View {
                             Picker(column.name, selection: Binding(get: { modes[column.name] ?? .omitted }, set: { modes[column.name] = $0 })) {
                                 Text("Value").tag(Input.value)
                                 if column.nullable { Text("NULL").tag(Input.null) }
-                                if draft.original == nil { Text("Default").tag(Input.omitted) }
+                                if draft.original == nil || column.defaultSQL != nil || column.nullable { Text("Default").tag(Input.omitted) }
                             }.labelsHidden().frame(width: 90).accessibilityIdentifier("mode-" + column.name)
                         }.disabled(column.generated)
                     }
@@ -100,13 +98,15 @@ private struct RowEditor: View {
 
     private func changed() throws -> RowChange {
         var edit = draft
-        edit.changes = [:]; edit.deleted = false
+        edit.changes = [:]; edit.defaults = []; edit.deleted = false
         for column in schema.columns where !column.generated {
             let name = column.name
             let old = draft.original?[name]
             let value: SQLValue
             switch modes[name] ?? .omitted {
-            case .omitted: continue
+            case .omitted:
+                if draft.original != nil { edit.defaults.insert(name) }
+                continue
             case .null: value = .null
             case .value:
                 let text = values[name] ?? ""
@@ -136,7 +136,7 @@ private struct ChangePreview: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Preview Changes").font(.title2)
             Text("\(workspace.profile.name) / \(workspace.database) / \(tab.title)").foregroundStyle(.secondary)
-            ScrollView { Text(sql).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+            ScrollView { Text(sql).font(.system(.body, design: .monospaced)).textSelection(.enabled).accessibilityIdentifier("changePreviewSQL").frame(maxWidth: .infinity, alignment: .leading) }
             if let error = tab.commitError { Text(error).foregroundStyle(.red).accessibilityIdentifier("commitError") }
             HStack {
                 Spacer()

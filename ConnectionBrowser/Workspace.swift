@@ -23,7 +23,12 @@ final class WorkspaceTab: Identifiable {
     var stopRequested = false
     var offset = 0
     var limit = 300
-    var selected: Int?
+    var selectedRows: Set<Int> = []
+    var focusedRow: Int?
+    var selected: Int? {
+        get { if let focusedRow, selectedRows.contains(focusedRow) { return focusedRow }; return selectedRows.min() }
+        set { selectedRows = newValue.map { [$0] } ?? []; focusedRow = newValue }
+    }
     var totalCount = 0
     var filterEditorVisible = false
     var filters: [ColumnFilter] = []
@@ -38,6 +43,9 @@ final class WorkspaceTab: Identifiable {
     var section = "Columns"
     var structureResult = QueryResult()
     var editor: RowChange?
+    var deletionReview: [RowChange] = []
+    var transfer: GridTransfer?
+    var cellEditor: CellEdit?
     var previewShown = false
     var commitError: String?
     var editHistory: [[RowChange]] = []
@@ -48,7 +56,8 @@ final class WorkspaceTab: Identifiable {
         for i in result.rows.indices {
             guard let change = draft(at: i) else { continue }
             for (c, column) in result.columns.enumerated() {
-                if let value = change.changes[column] { display.rows[i][c] = value }
+                if change.defaults.contains(column) { display.rows[i][c] = .text("DEFAULT") }
+                else if let value = change.changes[column] { display.rows[i][c] = value }
             }
         }
         for change in changes where change.original == nil {
@@ -65,7 +74,10 @@ final class WorkspaceTab: Identifiable {
             guard let change = draft(at: i) else { continue }
             if change.deleted || change.original == nil {
                 markers[i] = Dictionary(uniqueKeysWithValues: result.columns.map { ($0, change.deleted ? "minus.circle" : "plus.circle") })
-            } else { markers[i] = change.changes.mapValues { _ in "pencil" } }
+            } else {
+                markers[i] = change.changes.mapValues { _ in "pencil" }
+                for name in change.defaults { markers[i]?[name] = "arrow.counterclockwise" }
+            }
         }
         return markers
     }
@@ -86,13 +98,43 @@ final class WorkspaceTab: Identifiable {
         return RowChange(original: Dictionary(uniqueKeysWithValues: zip(result.columns, result.rows[index])))
     }
 
-    func stage(_ change: RowChange) {
+    func stage(_ change: RowChange) { stage([change]) }
+
+    func stage(_ batch: [RowChange]) {
+        guard !batch.isEmpty else { return }
         editHistory.append(changes)
-        if let i = changes.firstIndex(where: { $0.id == change.id }) { changes.remove(at: i) }
-        if change.original == nil && change.deleted { selected = nil; return }
-        if change.deleted || change.original == nil || !change.changes.isEmpty { changes.append(change) }
+        for change in batch { apply(change) }
     }
 
+    private func apply(_ change: RowChange) {
+        if let i = changes.firstIndex(where: { $0.id == change.id }) { changes.remove(at: i) }
+        if change.original == nil && change.deleted { selected = nil; return }
+        if change.deleted || change.original == nil || !change.changes.isEmpty || !change.defaults.isEmpty { changes.append(change) }
+    }
+
+    var canInsert: Bool { object?.kind == .table && schema?.transactional == true && !busy }
+    func canEdit(_ index: Int) -> Bool {
+        guard canInsert, let draft = editRow(at: index), let schema else { return false }
+        return draft.original == nil || (!schema.key.isEmpty && schema.key.allSatisfy { draft.original?[$0.name] != nil && draft.original?[$0.name] != .null })
+    }
+    func duplicate(_ indices: Set<Int>) {
+        guard canInsert, let schema else { return }
+        let displayedRows = displayed.rows
+        let omitted = Set(schema.columns.filter { $0.generated || $0.automatic || $0.keyOrder > 0 }.map(\.name))
+        let copies: [RowChange] = indices.sorted().compactMap { index in
+            guard displayedRows.indices.contains(index) else { return nil }
+            let pairs = zip(result.columns, displayedRows[index]).filter { !omitted.contains($0.0) }
+            return RowChange(original: nil, changes: Dictionary(uniqueKeysWithValues: pairs))
+        }
+        stage(copies)
+    }
+    func deletions(_ indices: Set<Int>) -> [RowChange] {
+        indices.sorted().compactMap { i in
+            guard canEdit(i), var draft = editRow(at: i) else { return nil }
+            draft.deleted = true
+            return draft
+        }
+    }
     func discard() { changes.removeAll(); editHistory.removeAll(); commitError = nil }
     func undoChange() { if let previous = editHistory.popLast() { changes = previous } }
     init(title: String, object: DatabaseObject? = nil) { self.title = title; self.object = object }
@@ -116,6 +158,8 @@ final class Workspace: Identifiable {
     var connected = true
     var reconnecting = false
     var showItems = true
+    enum FocusArea { case grid, sql }
+    var focusArea: FocusArea?
     var showDetails = true
     var showConsole = true
     var schemaDraft: SchemaDraft?
@@ -222,10 +266,13 @@ final class Workspace: Identifiable {
     func load(_ tab: WorkspaceTab) async {
         guard let object = tab.object else { return }
         let keyColumns = tab.schema?.key.map(\.name) ?? []
-        let previousKey = tab.selected.flatMap { index -> [SQLValue]? in
-            guard !keyColumns.isEmpty, tab.result.rows.indices.contains(index) else { return nil }
-            return keyColumns.compactMap { column in tab.result.columns.firstIndex(of: column).map { tab.result.rows[index][$0] } }
+        let oldIndices = keyColumns.compactMap(tab.result.columns.firstIndex)
+        func key(at index: Int) -> [SQLValue]? {
+            guard !oldIndices.isEmpty, tab.result.rows.indices.contains(index) else { return nil }
+            return oldIndices.map { tab.result.rows[index][$0] }
         }
+        let previousKeys = Set(tab.selectedRows.compactMap(key))
+        let focusedKey = tab.focusedRow.flatMap(key)
         let request = UUID()
         tab.requestID = request; tab.busy = true; tab.error = nil
         defer { if tab.requestID == request { tab.busy = false } }
@@ -236,9 +283,10 @@ final class Workspace: Identifiable {
             log.append(page.sql)
             tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset
             let keyIndices = keyColumns.compactMap(page.result.columns.firstIndex)
-            tab.selected = previousKey.flatMap { key in
-                page.result.rows.firstIndex { row in keyIndices.map { row[$0] } == key }
-            }
+            tab.selectedRows = Set(page.result.rows.indices.filter { index in
+                previousKeys.contains(keyIndices.map { page.result.rows[index][$0] })
+            })
+            tab.focusedRow = focusedKey.flatMap { key in tab.selectedRows.first { index in keyIndices.map { page.result.rows[index][$0] } == key } }
         } catch {
             guard request == tab.requestID else { return }
             tab.error = error.localizedDescription; log.append(error.localizedDescription); record(error)

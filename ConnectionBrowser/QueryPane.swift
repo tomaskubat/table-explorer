@@ -17,7 +17,9 @@ struct QueryPane: View {
             Spacer()
             Text(position).monospacedDigit()
         }.font(.caption)
-        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize)
+        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize) { focused in
+            if focused { workspace.focusArea = .sql } else if workspace.focusArea == .sql { workspace.focusArea = nil }
+        }
             .frame(minHeight: 78, idealHeight: 130, maxHeight: 200)
         HStack {
             Button("Run Current") { run(.current) }.keyboardShortcut(.return, modifiers: .command)

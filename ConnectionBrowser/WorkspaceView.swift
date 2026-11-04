@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     @State private var search = ""
+    @State private var fieldSearch = ""
     @State private var navigator = "Items"
     @State private var closing: WorkspaceTab?
 
@@ -74,12 +75,25 @@ struct WorkspaceView: View {
                 if workspace.showDetails {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Row Detail").font(.headline).accessibilityIdentifier("row-detail-header")
-                        if let tab = workspace.active, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
+                        TextField("Search for field", text: $fieldSearch).accessibilityLabel("Search for field")
+                        if let tab = workspace.active, !tab.showStructure, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(tab.result.columns.indices, id: \.self) { i in
-                                        Text(tab.result.columns[i]).font(.caption).foregroundStyle(.secondary)
-                                        Text(tab.displayed.rows[index][i].display).textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")
+                                    let values = tab.displayed.rows[index]
+                                    ForEach(tab.result.columns.indices.filter { fieldSearch.isEmpty || tab.result.columns[$0].localizedCaseInsensitiveContains(fieldSearch) }, id: \.self) { i in
+                                        let name = tab.result.columns[i], value = values[i]
+                                        HStack {
+                                            Text(name).font(.caption).foregroundStyle(.secondary)
+                                            Spacer()
+                                            if let column = tab.schema?.columns.first(where: { $0.name == name }) {
+                                                Text(column.type).font(.caption2).foregroundStyle(.secondary)
+                                                Button("Edit " + name, systemImage: "pencil") {
+                                                    tab.cellEditor = CellEdit(column: name, value: value, draft: tab.editRow(at: index),
+                                                        writable: workspace.connected && tab.canEdit(index) && !column.generated, nullable: column.nullable)
+                                                }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                                            }
+                                        }
+                                        Text(value.display).textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -121,6 +135,7 @@ struct WorkspaceView: View {
 private struct WorkspaceTabView: View {
     @State private var importShown = false
     @State private var exportShown = false
+    @State private var exportPageOnly = false
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
     var body: some View {
@@ -150,17 +165,21 @@ private struct WorkspaceTabView: View {
                     } else { Text("The server did not expose this definition to your account.").accessibilityIdentifier("routineUnavailable") }
                 } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
             } else {
-                ResultTable(result: tab.displayed, selected: $tab.selected, hidden: tab.hiddenColumns, pending: tab.cellMarkers)
-                    .frame(minHeight: 130).layoutPriority(1)
-                if tab.object != nil { RowActions(workspace: workspace, tab: tab) }
+                if tab.object != nil {
+                    DataGrid(workspace: workspace, tab: tab).frame(minHeight: 130).layoutPriority(1)
+                    RowActions(workspace: workspace, tab: tab)
+                } else {
+                    ResultTable(result: tab.result, selected: $tab.selected).frame(minHeight: 130).layoutPriority(1)
+                }
             }
             HStack(spacing: 8) {
                 if tab.object?.kind == .table {
                     Button("Import CSV") { importShown = true }
                         .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
                 }
-                Button("Export Data") { exportShown = true }
+                Button("Export Data") { exportPageOnly = false; exportShown = true }
                     .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
+                if tab.selectedRows.count > 1 { Text("\(tab.selectedRows.count) rows selected").font(.caption) }
                 if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
                 else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption) }
                 Spacer()
@@ -177,7 +196,25 @@ private struct WorkspaceTabView: View {
             }
         }.controlSize(.small).padding(8)
         .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
-        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab) }
+        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab, pageOnly: exportPageOnly) }
+        .onChange(of: tab.transfer) {
+            switch tab.transfer {
+            case .importCSV: importShown = true
+            case .exportPage: exportPageOnly = true; exportShown = true
+            case nil: break
+            }
+            tab.transfer = nil
+        }
+        .confirmationDialog("Mark \(tab.deletionReview.count) rows for deletion from \(tab.title)?",
+                            isPresented: Binding(get: { !tab.deletionReview.isEmpty }, set: { if !$0 { tab.deletionReview = [] } }),
+                            presenting: tab.deletionReview) { drafts in
+            Button("Stage Deletions", role: .destructive) { tab.stage(drafts) }
+            Button("Cancel", role: .cancel) {}
+        } message: { drafts in
+            let keys = tab.schema?.key.map(\.name) ?? []
+            let identities = drafts.prefix(8).map { draft in keys.map { $0 + "=" + (draft.original?[$0]?.display ?? "new") }.joined(separator: ", ") }
+            Text(workspace.profile.name + " / " + workspace.database + "\n" + identities.joined(separator: "\n"))
+        }
         .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }
     }
 }
