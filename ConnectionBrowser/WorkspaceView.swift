@@ -113,6 +113,7 @@ struct WorkspaceView: View {
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
         .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
+        .sheet(item: $workspace.maintenance) { action in MaintenanceView(workspace: workspace, action: action) }
         .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
         .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
         .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }

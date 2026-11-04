@@ -6,6 +6,7 @@ import SwiftUI
 struct DataGrid: NSViewRepresentable {
     let workspace: Workspace
     let tab: WorkspaceTab
+    @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFontSize = 12.0
 
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace, tab: tab) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -25,7 +26,7 @@ struct DataGrid: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let table = scroll.documentView as! GridTable
-        context.coordinator.update(table)
+        context.coordinator.update(table, fontSize: gridFontSize)
     }
 
     final class GridTable: NSTableView {
@@ -66,11 +67,15 @@ struct DataGrid: NSViewRepresentable {
         var columns: [(index: Int, name: String)] = []
         var rows: [[SQLValue]] = []
         var markers: [Int: [String: String]] = [:]
+        var fontSize = 12.0
         var applying = false
         var editing: (row: Int, column: String, draft: RowChange)?
         init(workspace: Workspace, tab: WorkspaceTab) { self.workspace = workspace; self.tab = tab }
 
-        func update(_ table: GridTable) {
+        func update(_ table: GridTable, fontSize: Double) {
+            let fontChanged = self.fontSize != fontSize
+            self.fontSize = fontSize
+            table.rowHeight = max(20, fontSize + 10)
             let display = tab.displayed
             let visible = display.columns.enumerated().filter { !tab.hiddenColumns.contains($0.element) }
             let newMarkers = tab.cellMarkers
@@ -87,7 +92,7 @@ struct DataGrid: NSViewRepresentable {
                     table.addTableColumn(model)
                 }
             }
-            if changedColumns || display.rows != rows || markers != newMarkers {
+            if changedColumns || fontChanged || display.rows != rows || markers != newMarkers {
                 rows = display.rows; markers = newMarkers; table.reloadData()
             }
             let indices = IndexSet(tab.selectedRows.filter(rows.indices.contains))
@@ -120,6 +125,7 @@ struct DataGrid: NSViewRepresentable {
             if case .blob(let bytes) = value { text = "BLOB · \(bytes.count) bytes" } else { text = value.display }
             let marker = markers[row]?[name]
             let prefix = marker == "minus.circle" ? "− " : marker == "plus.circle" ? "+ " : marker == nil ? "" : "✎ "
+            cell.textField?.font = .systemFont(ofSize: fontSize)
             cell.textField?.stringValue = prefix + text
             cell.textField?.textColor = value == .null ? .secondaryLabelColor : .labelColor
             cell.textField?.isEditable = false; cell.textField?.isSelectable = false

@@ -13,14 +13,14 @@ struct ConnectionBrowserApp: App {
 
     var body: some Scene {
         Window("Saved Connections", id: "connections") {
-            SavedConnectionsView(library: library, workspaces: workspaces)
+            SavedConnectionsView(library: library, workspaces: workspaces).modifier(BrowserAppearance())
         }
         .defaultSize(width: 700, height: 420)
         .windowResizability(.contentMinSize)
 
         WindowGroup("Workspace", for: UUID.self) { $id in
             if let id, let workspace = workspaces.sessions[id] {
-                WorkspaceView(workspace: workspace)
+                WorkspaceView(workspace: workspace).modifier(BrowserAppearance())
                     .onDisappear {
                         workspaces.sessions[id] = nil
                         Task { await workspace.session.close() }
@@ -33,5 +33,7 @@ struct ConnectionBrowserApp: App {
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
         .commands { WorkspaceCommands() }
+
+        Settings { PreferencesView(library: library) }
     }
 }

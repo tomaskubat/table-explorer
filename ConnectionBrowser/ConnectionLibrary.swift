@@ -89,11 +89,12 @@ enum ProfilePassword {
 final class ConnectionLibrary {
     private(set) var groups: [ConnectionGroup] = []
     var loadError: String?
-    private let file: URL
+    private var file: URL
     var directory: URL { file.deletingLastPathComponent() }
 
     init() {
-        var directory = URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")
+        var directory = BrowserPreferences.defaults.string(forKey: "libraryDirectory").map { URL(filePath: $0) }
+            ?? URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")
         if let override = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"], override.hasPrefix("/") {
             directory = URL(filePath: override)
         }
@@ -118,6 +119,20 @@ final class ConnectionLibrary {
                 #endif
             }
         } catch { loadError = "Could not load your connections. \(error.localizedDescription)" }
+    }
+
+    func useDirectory(_ folder: URL) throws {
+        let next = folder.appending(path: "connections.json")
+        let loaded: [ConnectionGroup]
+        if FileManager.default.fileExists(atPath: next.path) {
+            loaded = try JSONDecoder().decode([ConnectionGroup].self, from: Data(contentsOf: next))
+        } else {
+            loaded = [ConnectionGroup(name: "Connections")]
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try JSONEncoder().encode(loaded).write(to: next, options: .withoutOverwriting)
+        }
+        file = next; groups = loaded; loadError = nil
+        BrowserPreferences.defaults.set(folder.path, forKey: "libraryDirectory")
     }
 
     func update(_ change: (inout [ConnectionGroup]) throws -> Void) throws {

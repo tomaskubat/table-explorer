@@ -38,7 +38,7 @@ final class MariaHandle {
     deinit { mysql_close(connection) }
 
     func open(_ profile: ConnectionProfile, password: String) throws {
-        var timeout: UInt32 = 5
+        var timeout = UInt32(BrowserPreferences.timeout)
         var mode = profile.usesSocket ? MYSQL_PROTOCOL_SOCKET : MYSQL_PROTOCOL_TCP
         mysql_options(connection, MYSQL_OPT_CONNECT_TIMEOUT, &timeout)
         mysql_options(connection, MYSQL_OPT_PROTOCOL, &mode)
@@ -135,7 +135,7 @@ final class SQLiteHandle {
             throw BrowserError("SQLite: \(detail)")
         }
         database = handle
-        sqlite3_busy_timeout(handle, 3000)
+        sqlite3_busy_timeout(handle, Int32(BrowserPreferences.busyTimeout * 1000))
         sqlite3_exec(handle, "PRAGMA foreign_keys=ON", nil, nil, nil)
     }
     deinit { sqlite3_close(database) }
@@ -231,10 +231,20 @@ actor DatabaseSession {
         }
     }
 
+    func maintain(_ request: MaintenanceRequest, job: MaintenanceJob) throws -> String {
+        guard !hasOpenTransaction else { throw BrowserError("Finish the current transaction first.") }
+        try checkExportDestination(request.file)
+        return try DatabaseMaintenance.perform(request, job: job, sqlite: sqlite, endpoint: mariaEndpoint)
+    }
+
     func checkExportDestination(_ destination: URL) throws {
         guard let sqlite, let path = sqlite3_db_filename(sqlite.database, "main") else { return }
         let source = URL(filePath: String(cString: path)).resolvingSymlinksInPath().standardizedFileURL.path
         let target = destination.resolvingSymlinksInPath().standardizedFileURL.path
+        var origin = stat(), targetFile = stat()
+        if stat(source, &origin) == 0, stat(target, &targetFile) == 0, origin.st_dev == targetFile.st_dev && origin.st_ino == targetFile.st_ino {
+            throw BrowserError("The selected file is the active SQLite database.")
+        }
         guard ![source, source + "-wal", source + "-shm", source + "-journal"].contains(target) else {
             throw BrowserError("Choose an export file outside the active database and its journal files.")
         }

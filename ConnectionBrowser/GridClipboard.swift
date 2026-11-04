@@ -22,7 +22,7 @@ enum GridClipboard {
         switch format {
         case .text: return rows.map { $0.map(\.display).joined(separator: "\t") }.joined(separator: "\n")
         case .csv, .csvHeader:
-            let options = CSVSettings()
+            var options = CSVSettings(); options.delimiter = ","
             let lines = rows.map { row in row.map { $0 == .null ? options.nullToken : options.encode($0.display, forceQuote: $0.display == options.nullToken) }.joined(separator: ",") }
             return ((format == .csvHeader ? [fields.map { options.encode($0) }.joined(separator: ",")] : []) + lines).joined(separator: "\n")
         case .json:

@@ -6,10 +6,10 @@ struct CSVField: Sendable {
 }
 
 struct CSVSettings: Hashable, Sendable {
-    var delimiter = ","
+    var delimiter = BrowserPreferences.defaults.string(forKey: "csvSeparator") ?? ","
     var quote = "\""
-    var header = true
-    var nullToken = "\\N"
+    var header = BrowserPreferences.defaults.object(forKey: "csvHeader") as? Bool ?? true
+    var nullToken = BrowserPreferences.defaults.string(forKey: "csvNull") ?? "\\N"
     var encoding = "UTF-8"
     var lineEnding = "LF"
 

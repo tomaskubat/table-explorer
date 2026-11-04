@@ -16,6 +16,10 @@ struct WorkspaceCommands: Commands {
             Button("Saved Connections") { openWindow(id: "connections") }.keyboardShortcut("n")
             Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
         }
+        CommandGroup(after: .importExport) {
+            Button("Backup Database…") { workspace?.maintenance = .backup }.disabled(workspace?.connected != true || workspace?.hasRunningTasks != false)
+            Button("Restore Database…") { workspace?.maintenance = .restore }.disabled(workspace?.connected != true || workspace?.hasRunningTasks != false)
+        }
         CommandGroup(after: .pasteboard) {
             Button("Add Row") {
                 if gridFocused, let tab = workspace?.active { tab.editor = RowChange(original: nil) }
@@ -105,7 +109,7 @@ struct DatabaseChooser: View {
     var body: some View {
         VStack(alignment: .leading) {
             Text("Change Database").font(.title2)
-            Text("Switching databases closes the current tabs.").font(.caption)
+            Text("Switching databases closes object tabs and clears results. SQL text is kept.").font(.caption)
             TextField("Search databases", text: $search)
             List(names.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }, id: \.self, selection: $selected) { Text($0) }
             if let error { Text(error).foregroundStyle(.red) }

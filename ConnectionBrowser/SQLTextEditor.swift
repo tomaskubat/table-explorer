@@ -5,6 +5,8 @@ struct SQLTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var selection: NSRange
     var fontSize: Double = 13
+    var highlighting = true
+    var indent = 4
     var focusChanged: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -28,7 +30,9 @@ struct SQLTextEditor: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let editor = scroll.documentView as? NSTextView else { return }
+        let colorsChanged = context.coordinator.parent.highlighting != highlighting
         context.coordinator.parent = self
+        if colorsChanged { context.coordinator.highlight(editor) }
         if editor.string != text { editor.string = text; context.coordinator.highlight(editor) }
         let size = (editor.string as NSString).length
         if NSMaxRange(selection) <= size && selection != editor.selectedRange() { editor.setSelectedRange(selection) }
@@ -42,9 +46,17 @@ struct SQLTextEditor: NSViewRepresentable {
             guard let layout = editor.layoutManager else { return }
             let range = NSRange(location: 0, length: (editor.string as NSString).length)
             layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+            guard parent.highlighting else { return }
             for match in Self.tokens.matches(in: editor.string, range: range) {
                 layout.addTemporaryAttribute(.foregroundColor, value: match.range(at: 2).location == NSNotFound ? NSColor.systemGreen : .systemBlue, forCharacterRange: match.range)
             }
+        }
+        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertTab(_:)), parent.indent > 0 {
+                textView.insertText(String(repeating: " ", count: parent.indent), replacementRange: textView.selectedRange())
+                return true
+            }
+            return false
         }
         func textDidBeginEditing(_ notification: Notification) { parent.focusChanged(true) }
         func textDidEndEditing(_ notification: Notification) { parent.focusChanged(false) }

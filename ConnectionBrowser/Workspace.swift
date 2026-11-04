@@ -22,7 +22,7 @@ final class WorkspaceTab: Identifiable {
     var cancellation: QueryCancellation?
     var stopRequested = false
     var offset = 0
-    var limit = 300
+    var limit = BrowserPreferences.pageSize
     var selectedRows: Set<Int> = []
     var focusedRow: Int?
     var selected: Int? {
@@ -164,10 +164,12 @@ final class Workspace: Identifiable {
     var showConsole = true
     var schemaDraft: SchemaDraft?
     var serverTool: ServerTool?
+    var maintenance: MaintenanceAction?
+    var maintenanceBusy = false
     var objectSearchShown = false
     var databaseSelectorShown = false
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
-    var hasRunningTasks: Bool { tabs.contains { $0.busy } }
+    var hasRunningTasks: Bool { maintenanceBusy || tabs.contains { $0.busy } }
 
     init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
@@ -197,8 +199,15 @@ final class Workspace: Identifiable {
     func switchDatabase(to name: String) async throws {
         guard !hasDrafts && !hasRunningTasks else { throw BrowserError("Finish pending changes and queries before switching databases.") }
         _ = try await session.query("USE " + DatabaseSession.identifier(name))
-        tabs = []; activeID = nil; database = name
+        clearDatabaseResults()
+        database = name
         await reloadObjects()
+    }
+
+    func clearDatabaseResults() {
+        tabs.removeAll { $0.object != nil }
+        for tab in tabs { tab.result = QueryResult(); tab.executions = []; tab.error = nil; tab.selected = nil }
+        if !tabs.contains(where: { $0.id == activeID }) { activeID = tabs.last?.id }
     }
 
     func closeTab(_ tab: WorkspaceTab) {
@@ -314,7 +323,7 @@ final class Workspace: Identifiable {
             let start = Date()
             var result = QueryResult()
             var failure: String?
-            do { result = try await session.runUserSQL(sql, cancellation: cancellation, limit: 1000) }
+            do { result = try await session.runUserSQL(sql, cancellation: cancellation, limit: BrowserPreferences.queryLimit) }
             catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
             let hidden = QueryNotebook.containsCredentials(sql)
@@ -330,11 +339,12 @@ final class Workspace: Identifiable {
 @MainActor @Observable
 final class WorkspaceRegistry {
     var sessions: [UUID: Workspace] = [:]
-    private var notebooks: [UUID: QueryNotebook] = [:]
+    private var notebooks: [URL: QueryNotebook] = [:]
     func notebook(for id: UUID, directory: URL) -> QueryNotebook {
-        if let existing = notebooks[id] { return existing }
+        let key = directory.appending(path: id.uuidString)
+        if let existing = notebooks[key] { return existing }
         let notebook = QueryNotebook(directory: directory, profile: id)
-        notebooks[id] = notebook
+        notebooks[key] = notebook
         return notebook
     }
 }

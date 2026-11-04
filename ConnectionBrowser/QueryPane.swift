@@ -7,7 +7,11 @@ struct QueryPane: View {
     @State private var favoriteSheet = false
     @State private var favoriteName = ""
     @State private var keywords = ""
-    @AppStorage("queryFontSize") private var fontSize = 13.0
+    @AppStorage("queryFontSize", store: BrowserPreferences.defaults) private var fontSize = 13.0
+
+    @AppStorage("highlightSQL", store: BrowserPreferences.defaults) private var highlight = true
+    @AppStorage("indentSpaces", store: BrowserPreferences.defaults) private var indent = 4
+    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = "Review writes"
 
     var body: some View {
         HStack {
@@ -17,7 +21,7 @@ struct QueryPane: View {
             Spacer()
             Text(position).monospacedDigit()
         }.font(.caption)
-        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize) { focused in
+        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize, highlighting: highlight, indent: indent) { focused in
             if focused { workspace.focusArea = .sql } else if workspace.focusArea == .sql { workspace.focusArea = nil }
         }
             .frame(minHeight: 78, idealHeight: 130, maxHeight: 200)
@@ -82,7 +86,7 @@ struct QueryPane: View {
     private func run(_ scope: SQLScope) {
         let commands = SQLDocument.commands(text: tab.sql, selection: tab.textSelection, scope: scope, driver: workspace.profile.driver)
         guard !commands.isEmpty else { return }
-        if workspace.profile.environment.lowercased().hasPrefix("pro") || commands.contains(where: SQLDocument.requiresConfirmation) { review = commands }
+        if workspace.profile.environment.lowercased().hasPrefix("pro") || safety == "Review every statement" || (safety != "Run immediately" && commands.contains(where: SQLDocument.requiresConfirmation)) { review = commands }
         else { Task { await workspace.run(commands, on: tab) } }
     }
 }
