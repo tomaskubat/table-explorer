@@ -1,14 +1,14 @@
 # Connection Browser
 
-Databázový klient napsaný ve SwiftUI pro práci se SQLite, MySQL a MariaDB. Vyžaduje Mac s čipem Apple Silicon a macOS 26 nebo novějším.
+Connection Browser is a SwiftUI database client for SQLite, MySQL, and MariaDB. It requires a Mac with Apple silicon running macOS 26 or later.
 
-## Instalace
+## Installation
 
-1. V [nejnovějším vydání na GitHubu](https://github.com/tomaskubat/table-explorer/releases/latest) stáhni ze sekce **Assets** soubor `ConnectionBrowser-…-arm64.zip`.
-2. Rozbal ZIP, přetáhni `ConnectionBrowser.app` do složky **Aplikace** a otevři ji.
+1. Open the [latest GitHub release](https://github.com/tomaskubat/table-explorer/releases/latest) and download `ConnectionBrowser-…-arm64.zip` from **Assets**.
+2. Unzip the file, drag `ConnectionBrowser.app` into **Applications**, and open it.
 
-Pokud macOS při prvním otevření ohlásí, že nemůže ověřit vývojáře, zvol **Nastavení systému → Soukromí a zabezpečení → Přesto otevřít**. [Návod od Applu](https://support.apple.com/cs-cz/102445)
+If macOS says it cannot verify the developer on first launch, go to **System Settings → Privacy & Security** and click **Open Anyway**. [Apple’s guide](https://support.apple.com/en-us/102445)
 
-## Aktualizace
+## Updates
 
-Aplikace automaticky vyhledává nové verze. Když aktualizaci najde, nabídne ti ji k instalaci. Ruční kontrolu spustíš v nabídce **Connection Browser → Check for Updates…**.
+Connection Browser automatically checks for updates and asks before installing a new version. To check manually, choose **Connection Browser → Check for Updates…**.
