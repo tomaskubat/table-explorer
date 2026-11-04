@@ -22,6 +22,15 @@ struct WorkspaceCommands: Commands {
             Toggle("SQL Console", isOn: flag(\.showConsole))
                 .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(workspace == nil)
         }
+        CommandMenu("Database") {
+            Button("New Table…") { workspace?.schemaDraft = SchemaDraft(kind: .table) }.disabled(workspace?.connected != true)
+            Button("New View…") { workspace?.schemaDraft = SchemaDraft(kind: .view) }.disabled(workspace?.connected != true)
+            if workspace?.profile.driver == .mariaDB {
+                Divider()
+                Button("Server Accounts…") { workspace?.serverTool = .accounts }.disabled(workspace?.connected != true)
+                Button("Process List…") { workspace?.serverTool = .processes }.disabled(workspace?.connected != true)
+            }
+        }
         CommandMenu("Connection") {
             Button("Open Anything…") { workspace?.objectSearchShown = true }.keyboardShortcut("p").disabled(workspace?.connected != true)
             Button("Change Database…") { workspace?.databaseSelectorShown = true }

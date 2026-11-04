@@ -115,6 +115,8 @@ final class Workspace: Identifiable {
     var showItems = true
     var showDetails = true
     var showConsole = true
+    var schemaDraft: SchemaDraft?
+    var serverTool: ServerTool?
     var objectSearchShown = false
     var databaseSelectorShown = false
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
@@ -165,7 +167,9 @@ final class Workspace: Identifiable {
 
     func reloadObjects() async {
         do {
+            if profile.driver == .mariaDB && database.isEmpty { objects = []; databaseSelectorShown = true; return }
             objects = try await session.objects()
+            if profile.driver == .mariaDB { objects += try await session.routines() }
             error = nil
         } catch { record(error) }
     }
@@ -174,6 +178,10 @@ final class Workspace: Identifiable {
         let tab = WorkspaceTab(title: object.name, object: object)
         tabs.append(tab)
         activeID = tab.id
+        if object.kind == .procedure || object.kind == .function {
+            tab.section = "DDL"; tab.showStructure = true
+            return
+        }
         await load(tab)
         do { tab.schema = try await session.schema(of: object, driver: profile.driver) }
         catch { tab.error = error.localizedDescription }

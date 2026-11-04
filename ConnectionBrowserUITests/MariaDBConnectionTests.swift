@@ -44,6 +44,14 @@ final class MariaDBConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.waitForExistence(timeout: 10))
         XCTAssertTrue(workspace.staticTexts["country"].waitForExistence(timeout: 5))
         XCTAssertTrue(workspace.staticTexts["country_names"].exists)
+        XCTAssertTrue(workspace.staticTexts["list_countries"].waitForExistence(timeout: 5))
+        workspace.staticTexts["list_countries"].doubleClick()
+        XCTAssertTrue(workspace.staticTexts["routineUnavailable"].waitForExistence(timeout: 5))
+        app.menuBars.menuBarItems["Database"].click()
+        app.menuItems["Server Accounts…"].click()
+        XCTAssertTrue(app.staticTexts["serverToolError"].waitForExistence(timeout: 5))
+        XCTAssertTrue((app.staticTexts["serverToolError"].value as? String)?.contains("1142") == true)
+        app.buttons["Close Server Tool"].click()
         workspace.staticTexts["country"].doubleClick()
         XCTAssertTrue(workspace.staticTexts["Czechia"].waitForExistence(timeout: 5))
         workspace.buttons["Filters"].click()
@@ -52,6 +60,11 @@ final class MariaDBConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.staticTexts["Austria"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(workspace.staticTexts["Czechia"].exists)
         XCTAssertTrue(workspace.staticTexts["1 of 1 rows"].exists)
+        workspace.staticTexts["Czechia"].firstMatch.click()
+        let screenshot = XCTAttachment(screenshot: workspace.screenshot())
+        screenshot.name = "MariaDB filtered table and row detail"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         workspace.buttons["Unset"].click()
         XCTAssertTrue(workspace.staticTexts["Austria"].waitForExistence(timeout: 5))
 

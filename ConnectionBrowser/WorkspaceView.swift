@@ -98,6 +98,8 @@ struct WorkspaceView: View {
             Button("Keep Editing", role: .cancel) {}
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
+        .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
+        .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
         .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
         .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }
         .toolbar {
@@ -126,7 +128,7 @@ private struct WorkspaceTabView: View {
             if tab.object == nil {
                 QueryPane(workspace: workspace, tab: tab)
             }
-            if tab.object != nil {
+            if tab.object?.kind == .table || tab.object?.kind == .view {
                 Picker("Object Mode", selection: $tab.showStructure) {
                     Text("Data").tag(false)
                     Text("Structure").tag(true)
@@ -134,7 +136,7 @@ private struct WorkspaceTabView: View {
                 if tab.showStructure {
                     Picker("Structure Section", selection: $tab.section) {
                         ForEach(["Columns", "Indexes", "Foreign Keys", "Triggers", "DDL"], id: \.self) { Text($0) }
-                    }.frame(maxWidth: 320)
+                    }.frame(maxWidth: 320).accessibilityIdentifier("Structure Section")
                 } else {
                     TableControls(workspace: workspace, tab: tab)
                 }
@@ -143,8 +145,9 @@ private struct WorkspaceTabView: View {
             if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
             if tab.showStructure {
                 if tab.section == "DDL", let row = tab.structureResult.rows.first {
-                    ScrollView { Text(row.first(where: { $0.display.uppercased().contains("CREATE ") })?.display ?? "")
-                        .font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    if let ddl = row.first(where: { $0.display.uppercased().contains("CREATE ") }) {
+                        ScrollView { Text(ddl.display).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    } else { Text("The server did not expose this definition to your account.").accessibilityIdentifier("routineUnavailable") }
                 } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
             } else {
                 ResultTable(result: tab.displayed, selected: $tab.selected, hidden: tab.hiddenColumns, pending: tab.cellMarkers)
@@ -183,25 +186,35 @@ private struct GridRow: Identifiable {
     let cells: [SQLValue]
 }
 
+private struct GridColumn: Identifiable, Hashable {
+    let offset: Int
+    let title: String
+    var id: Self { self }
+}
+
 struct ResultTable: View {
     let result: QueryResult
     @Binding var selected: Int?
     var hidden: Set<String> = []
     var pending: [Int: [String: String]] = [:]
     var body: some View {
+        let columns = result.columns.enumerated().compactMap { offset, title in
+            hidden.contains(title) ? nil : GridColumn(offset: offset, title: title)
+        }
         Table(result.rows.enumerated().map { GridRow(id: $0.offset, cells: $0.element) }, selection: $selected) {
-            TableColumnForEach(result.columns.indices.filter { !hidden.contains(result.columns[$0]) }, id: \.self) { column in
-                TableColumn(result.columns[column]) { row in
-                    HStack(spacing: 4) {
-                        if let marker = pending[row.id]?[result.columns[column]] {
-                            Image(systemName: marker).accessibilityLabel("Pending change")
+            TableColumnForEach(columns) { column in
+                TableColumn(column.title) { row in
+                    if row.cells.indices.contains(column.offset) {
+                        let value = row.cells[column.offset]
+                        let marker = pending[row.id]?[column.title]
+                        HStack(spacing: 4) {
+                            if let marker { Image(systemName: marker).accessibilityLabel("Pending change") }
+                            Text(value.display).strikethrough(marker == "minus.circle")
+                                .foregroundStyle(value == .null ? .secondary : .primary)
                         }
-                        Text(row.cells[column].display)
-                            .strikethrough(pending[row.id]?[result.columns[column]] == "minus.circle")
-                            .foregroundStyle(row.cells[column] == .null ? .secondary : .primary)
                     }
                 }.width(min: 70, ideal: 125)
             }
-        }.accessibilityLabel("Query Results")
+        }.id(columns).accessibilityLabel("Query Results")
     }
 }

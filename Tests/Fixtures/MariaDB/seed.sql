@@ -7,3 +7,4 @@ CREATE TABLE country (
 INSERT INTO country (code, name, note) VALUES
     ('CZ', 'Czechia', NULL), ('AT', 'Austria', ''), ('SK', 'Slovakia', 'Bratislava');
 CREATE VIEW country_names AS SELECT code, name FROM country;
+CREATE PROCEDURE list_countries() READS SQL DATA SELECT code, name FROM country ORDER BY code;
