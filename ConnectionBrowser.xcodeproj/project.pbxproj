@@ -92,8 +92,8 @@
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = ();
-			inputPaths = ("$(SRCROOT)/Scripts/embed-mariadb.sh", "/opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.3.dylib");
-			outputPaths = ("$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libmariadb.dylib");
+			inputPaths = ("$(SRCROOT)/Scripts/embed-mariadb.sh", "$(SRCROOT)/Scripts/ssh-askpass", "$(SRCROOT)/Scripts/ssh-tunnel", "/opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.3.dylib");
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libmariadb.dylib", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ssh-askpass", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ssh-tunnel");
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "bash \"$SRCROOT/Scripts/embed-mariadb.sh\"";
@@ -133,6 +133,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = arm64;
 				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = macosx;

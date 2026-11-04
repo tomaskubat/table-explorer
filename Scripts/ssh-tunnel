@@ -1,0 +1,13 @@
+#!/bin/sh
+# stdin is a lifetime pipe owned by the application. If the app crashes or
+# quits, EOF terminates the forwarding process instead of orphaning it.
+exec 3<&0
+/usr/bin/ssh "$@" 3<&- </dev/null &
+child=$!
+( /bin/cat <&3 >/dev/null; kill -TERM "$child" 2>/dev/null ) &
+watcher=$!
+trap 'kill -TERM "$child" "$watcher" 2>/dev/null; exit 143' HUP INT TERM
+wait "$child"
+status=$?
+kill -TERM "$watcher" 2>/dev/null
+exit "$status"

@@ -106,6 +106,7 @@ final class Workspace: Identifiable {
     let session: DatabaseSession
     var database: String
     private let password: String
+    private let sshPassword: String
     var objects: [DatabaseObject] = []
     var tabs: [WorkspaceTab] = []
     var activeID: UUID?
@@ -124,8 +125,8 @@ final class Workspace: Identifiable {
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
     var hasRunningTasks: Bool { tabs.contains { $0.busy } }
 
-    init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, notebook: QueryNotebook) {
-        self.notebook = notebook; self.password = password
+    init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook) {
+        self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
         self.profile = profile; self.session = session; self.database = database
     }
 
@@ -142,7 +143,7 @@ final class Workspace: Identifiable {
         do {
             var target = profile
             if profile.driver == .mariaDB { target.database = database }
-            database = try await session.open(target, password: password)
+            database = try await session.open(target, password: password, sshPassword: sshPassword)
             connected = true
             await reloadObjects()
             if let active, active.object != nil && active.changes.isEmpty { await load(active) }

@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if !arch(arm64)
+#error("Connection Browser requires Apple Silicon.")
+#endif
+
 @main
 struct ConnectionBrowserApp: App {
     @State private var library = ConnectionLibrary()

@@ -16,9 +16,12 @@ copy_library() {
     name="$(basename "$source")"
     target="$stage/$name"
     [[ -f "$target" ]] && return 0
-    cp -f "$source" "$target"
+    if [[ "$(lipo -archs "$source")" == arm64 ]]; then
+        cp -f "$source" "$target"
+    else
+        lipo "$source" -thin arm64 -output "$target"
+    fi
     chmod u+w "$target"
-    lipo "$target" -verify_arch arm64
     install_name_tool -id "@rpath/$name" "$target"
     while read -r dependency; do
         [[ "$(basename "$dependency")" == "$name" ]] && continue
@@ -35,3 +38,6 @@ mkdir -p "$licenses"
 cp /opt/homebrew/opt/mariadb-connector-c/COPYING.LIB "$licenses/MariaDB-Connector-C.txt"
 ssl_prefix="$(otool -L "$source_lib" | awk '/^[[:space:]]+.*\/libssl\./ {sub(/\/lib\/libssl.*/, "", $1); print $1; exit}')"
 cp "$ssl_prefix/LICENSE.txt" "$licenses/OpenSSL.txt"
+
+install -m 0755 "$SRCROOT/Scripts/ssh-askpass" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/ssh-askpass"
+install -m 0755 "$SRCROOT/Scripts/ssh-tunnel" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/ssh-tunnel"

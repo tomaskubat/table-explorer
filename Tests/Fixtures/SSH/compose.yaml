@@ -1,0 +1,30 @@
+name: connectionbrowser-ssh-uitest
+services:
+  bastion:
+    build: .
+    platform: linux/arm64
+    ports:
+      - "127.0.0.1:33463:22"
+    volumes:
+      - ../../../.build/SSHFixture/server:/run/fixture-host-key:ro
+      - ../../../.build/SSHFixture/client.pub:/run/fixture-client.pub:ro
+    networks:
+      - fixture
+  bastion-tls:
+    profiles: ["tls"]
+    build: .
+    platform: linux/arm64
+    ports:
+      - "127.0.0.1:33464:22"
+    volumes:
+      - ../../../.build/SSHFixture/server:/run/fixture-host-key:ro
+      - ../../../.build/SSHFixture/client.pub:/run/fixture-client.pub:ro
+    networks:
+      - secure
+networks:
+  secure:
+    name: connectionbrowser-secure-uitest_default
+    external: true
+  fixture:
+    name: connectionbrowser-uitest_default
+    external: true

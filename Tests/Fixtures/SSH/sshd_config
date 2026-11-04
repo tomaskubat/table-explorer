@@ -1,0 +1,14 @@
+Port 22
+HostKey /run/sshd/fixture_host_key
+PasswordAuthentication yes
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowUsers tunnel
+AllowTcpForwarding local
+PermitOpen database:3306
+AllowAgentForwarding no
+X11Forwarding no
+PermitTTY no
+ForceCommand /bin/false
+UsePAM no

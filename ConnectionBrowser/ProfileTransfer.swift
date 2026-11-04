@@ -17,6 +17,12 @@ enum ProfileAddress {
             profile.database = String(parts.path.drop(while: { $0 == "/" }))
             profile.socketPath = option("socket") ?? ""; profile.usesSocket = !profile.socketPath.isEmpty
             profile.verifyTLS = option("tls") != "disabled"
+            if let host = option("ssh-host") {
+                var ssh = SSHSettings()
+                ssh.host = host; ssh.port = option("ssh-port") ?? "22"; ssh.user = option("ssh-user") ?? ""
+                ssh.databaseFingerprint = option("db-fingerprint") ?? ""
+                profile.ssh = ssh
+            }
             profile.name = option("name") ?? (profile.user.isEmpty ? host : profile.user + "@" + host)
         case "sqlite", "file":
             guard parts.host == nil || parts.host == "" || parts.host == "localhost", parts.path.hasPrefix("/") else {
@@ -41,6 +47,10 @@ enum ProfileAddress {
             var items: [URLQueryItem] = []
             if profile.usesSocket { items.append(URLQueryItem(name: "socket", value: profile.socketPath)) }
             if !profile.verifyTLS { items.append(URLQueryItem(name: "tls", value: "disabled")) }
+            if let ssh = profile.ssh {
+                items += [URLQueryItem(name: "ssh-host", value: ssh.host), URLQueryItem(name: "ssh-port", value: ssh.port), URLQueryItem(name: "ssh-user", value: ssh.user)]
+                if !ssh.databaseFingerprint.isEmpty { items.append(URLQueryItem(name: "db-fingerprint", value: ssh.databaseFingerprint)) }
+            }
             if !items.isEmpty { parts.queryItems = items }
         }
         return parts.url
@@ -56,7 +66,7 @@ extension ConnectionLibrary {
     func exportGroups(_ exported: [ConnectionGroup], to file: URL) throws {
         var copies = exported
         for i in copies.indices {
-            for j in copies[i].connections.indices { copies[i].connections[j].rememberPassword = false }
+            for j in copies[i].connections.indices { copies[i].connections[j].rememberPassword = false; copies[i].connections[j].ssh?.rememberSecret = false }
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -73,7 +83,7 @@ extension ConnectionLibrary {
                     guard !input.name.isEmpty, input.driver == .sqlite ? input.filePath.hasPrefix("/") : (input.usesSocket ? !input.socketPath.isEmpty : UInt16(input.port).map { $0 > 0 } == true) else {
                         throw BrowserError("The archive contains an invalid connection profile.")
                     }
-                    var copy = input; copy.id = UUID(); copy.rememberPassword = false
+                    var copy = input; copy.id = UUID(); copy.rememberPassword = false; copy.ssh?.rememberSecret = false
                     return copy
                 }
                 groups.append(ConnectionGroup(name: source.name, connections: profiles))

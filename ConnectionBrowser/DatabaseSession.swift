@@ -48,7 +48,15 @@ final class MariaHandle {
         var tls: my_bool = profile.verifyTLS ? 1 : 0
         mysql_options(connection, MYSQL_OPT_SSL_ENFORCE, &tls)
         mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &tls)
-        if profile.verifyTLS {
+        if profile.verifyTLS, let ssh = profile.ssh {
+            // Connector/C sees a local socket behind OpenSSH. Pin the remote
+            // database certificate explicitly rather than verifying localhost.
+            let pin = ssh.databaseFingerprint.replacingOccurrences(of: ":", with: "")
+            guard pin.count == 64, pin.allSatisfy(\.isHexDigit) else {
+                throw BrowserError("Enter the remote database certificate's SHA-256 fingerprint to use verified TLS through SSH.")
+            }
+            guard mysql_options(connection, MARIADB_OPT_TLS_PEER_FP, pin) == 0 else { throw failure() }
+        } else if profile.verifyTLS {
             // Connector/C can accept a local peer using zero-configuration TLS
             // when no trust anchor is specified. This mode promises CA validation.
             let ca = profile.caPath.isEmpty ? "/etc/ssl/cert.pem" : profile.caPath
@@ -181,16 +189,24 @@ actor DatabaseSession {
     private var maria: MariaHandle?
     private var sqlite: SQLiteHandle?
     private var mariaEndpoint: (ConnectionProfile, String)?
+    private var tunnel: SSHTunnel?
 
-    func open(_ profile: ConnectionProfile, password: String) throws -> String {
+    func open(_ profile: ConnectionProfile, password: String, sshPassword: String = "") throws -> String {
         close()
         do {
             switch profile.driver {
             case .mariaDB:
+                var endpoint = profile
+                if let settings = profile.ssh {
+                    let tunnel = try SSHTunnel()
+                    try tunnel.start(profile: profile, settings: settings, secret: sshPassword)
+                    self.tunnel = tunnel
+                    endpoint.usesSocket = true; endpoint.socketPath = tunnel.socket
+                }
                 let handle = try MariaHandle()
-                try handle.open(profile, password: password)
+                try handle.open(endpoint, password: password)
                 maria = handle
-                mariaEndpoint = (profile, password)
+                mariaEndpoint = (endpoint, password)
                 let name = try query("SELECT DATABASE()").rows.first?.first
                 return name == .null ? "" : name?.display ?? ""
             case .sqlite:
@@ -230,7 +246,7 @@ actor DatabaseSession {
         return false
     }
 
-    func close() { maria = nil; sqlite = nil; mariaEndpoint = nil }
+    func close() { maria = nil; sqlite = nil; mariaEndpoint = nil; tunnel = nil }
 
     func runUserSQL(_ sql: String, cancellation: QueryCancellation, limit: Int) throws -> QueryResult {
         if let sqlite {
@@ -262,7 +278,7 @@ actor DatabaseSession {
                 if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit, visit: visit) }
                 return try maria.query(sql, limit: limit, visit: visit)
             } catch let error as BrowserError {
-                if error.disconnected { self.maria = nil }
+                if error.disconnected { close() }
                 throw error
             }
         }

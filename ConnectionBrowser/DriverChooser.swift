@@ -4,7 +4,7 @@ struct DriverChooser: View {
     private enum Step { case choose, address, settings, group }
     let library: ConnectionLibrary
     let groupID: UUID
-    let onConnect: (ConnectionProfile, DatabaseSession, String, String) -> Void
+    let onConnect: (ConnectionProfile, DatabaseSession, String, String, String) -> Void
     @State private var step = Step.choose
     @State private var driver: DatabaseDriver?
     @State private var profile = ConnectionProfile()

@@ -18,4 +18,5 @@ if ! openssl x509 -checkend 86400 -noout -in "$cert_dir/server.crt" >/dev/null 2
     # containing directory remains private on the Mac.
     chmod 644 "$cert_dir/ca.crt" "$cert_dir/server.crt" "$cert_dir/server.key"
 fi
+openssl x509 -in "$cert_dir/server.crt" -noout -sha256 -fingerprint | sed 's/.*=//' > "$cert_dir/fingerprint"
 docker compose -f "$fixture_dir/secure-compose.yaml" up -d --wait "$@"

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Credentials are written once to a private FIFO. They are never placed in
+# argv, the child's environment, a regular file, or SSH diagnostics.
+case "$1" in
+    *assword*|*assphrase*)
+        IFS= read -r answer < "$CB_ASKPASS_FIFO" || exit 1
+        printf '%s\n' "$answer"
+        ;;
+    *) exit 1 ;;
+esac

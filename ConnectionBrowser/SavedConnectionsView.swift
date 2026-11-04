@@ -2,12 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum LibraryEditor: Identifiable {
-    case group(ConnectionGroup), profile(ConnectionProfile, UUID), choose(UUID)
+    case group(ConnectionGroup), profile(ConnectionProfile, UUID, error: String? = nil), choose(UUID)
     var id: UUID {
         switch self {
         case .choose(let id): id
         case .group(let group): group.id
-        case .profile(let profile, _): profile.id
+        case .profile(let profile, _, _): profile.id
         }
     }
 }
@@ -31,6 +31,7 @@ struct SavedConnectionsView: View {
             .frame(width: 190).frame(maxHeight: .infinity).background(Color(nsColor: .windowBackgroundColor))
             Divider()
             VStack(spacing: 0) {
+                if let issue = library.loadError { Text(issue).foregroundStyle(.red).padding(8) }
                 List(selection: $selection) {
                     ForEach(library.groups) { group in
                         ConnectionGroupSection(group: group)
@@ -62,19 +63,19 @@ struct SavedConnectionsView: View {
         .sheet(item: $editor) { editor in
             switch editor {
             case .choose(let group):
-                DriverChooser(library: library, groupID: group) { profile, session, database, password in
-                    showWorkspace(profile, session: session, database: database, password: password)
+                DriverChooser(library: library, groupID: group) { profile, session, database, password, sshPassword in
+                    showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword)
                 }
             case .group(let group): GroupEditor(library: library, group: group)
-            case .profile(let profile, let group):
-                ProfileEditor(library: library, profile: profile, groupID: group) { connection, session, database, password in
-                    showWorkspace(connection, session: session, database: database, password: password)
+            case .profile(let profile, let group, let failure):
+                ProfileEditor(library: library, profile: profile, groupID: group, initialError: failure) { connection, session, database, password, sshPassword in
+                    showWorkspace(connection, session: session, database: database, password: password, sshPassword: sshPassword)
                 }
             }
         }
-        .alert("Connection Library", isPresented: Binding(get: { error != nil || library.loadError != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Connection Library", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
-        } message: { Text(error ?? library.loadError ?? "") }
+        } message: { Text(error ?? "") }
         .confirmationDialog("Remove from the library?", isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }), presenting: removal) { id in
             Button("Remove", role: .destructive) { remove(id) }
             Button("Cancel", role: .cancel) {}
@@ -123,7 +124,7 @@ struct SavedConnectionsView: View {
         }
         Button("Duplicate") {
             if let (p, g) = found {
-                var copy = p; copy.id = UUID(); copy.name += " Copy"; copy.rememberPassword = false
+                var copy = p; copy.id = UUID(); copy.name += " Copy"; copy.rememberPassword = false; copy.ssh?.rememberSecret = false
                 editor = .profile(copy, g)
             }
         }.disabled(found == nil)
@@ -161,22 +162,25 @@ struct SavedConnectionsView: View {
                 groups.removeAll { $0.id == id }
                 for index in groups.indices { groups[index].connections.removeAll { $0.id == id } }
             }
-            for profile in profiles where profile.rememberPassword { try ProfilePassword.write("", for: profile.id) }
+            for profile in profiles {
+                if profile.rememberPassword { try ProfilePassword.write("", for: profile.id) }
+                if profile.ssh?.rememberSecret == true { try ProfilePassword.write("", for: profile.id, ssh: true) }
+            }
         }
     }
     private func connectSaved(_ profile: ConnectionProfile, group: UUID) async {
         let session = DatabaseSession()
         do {
             let password = profile.rememberPassword ? try ProfilePassword.read(profile.id) : ""
-            let database = try await session.open(profile, password: password)
-            showWorkspace(profile, session: session, database: database, password: password)
+            let sshPassword = profile.ssh?.rememberSecret == true ? try ProfilePassword.read(profile.id, ssh: true) : ""
+            let database = try await session.open(profile, password: password, sshPassword: sshPassword)
+            showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword)
         } catch {
-            editor = .profile(profile, group)
-            self.error = error.localizedDescription
+            editor = .profile(profile, group, error: error.localizedDescription)
         }
     }
-    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String) {
-        let workspace = Workspace(profile: profile, session: session, database: database, password: password, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
+    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String) {
+        let workspace = Workspace(profile: profile, session: session, database: database, password: password, sshPassword: sshPassword, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
         workspaces.sessions[workspace.id] = workspace
         openWindow(value: workspace.id)
     }

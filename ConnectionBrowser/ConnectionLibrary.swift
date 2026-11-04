@@ -22,10 +22,11 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var caPath = ""
     var filePath = ""
     var rememberPassword = false
+    var ssh: SSHSettings?
 
     var detail: String {
         if driver == .sqlite { return filePath }
-        return [usesSocket ? socketPath : "\(host):\(port)", database].filter { !$0.isEmpty }.joined(separator: " · ")
+        return [(ssh == nil ? "" : "SSH · ") + (usesSocket ? socketPath : "\(host):\(port)"), database].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
@@ -46,14 +47,14 @@ struct BrowserError: LocalizedError {
 }
 
 enum ProfilePassword {
-    private static func query(_ id: UUID) -> [String: Any] {
+    private static func query(_ id: UUID, ssh: Bool) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "local.connectionbrowser.database",
+         kSecAttrService as String: ssh ? "local.connectionbrowser.ssh" : "local.connectionbrowser.database",
          kSecAttrAccount as String: id.uuidString]
     }
 
-    static func read(_ id: UUID) throws -> String {
-        var request = query(id)
+    static func read(_ id: UUID, ssh: Bool = false) throws -> String {
+        var request = query(id, ssh: ssh)
         request[kSecReturnData as String] = true
         var value: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &value)
@@ -65,8 +66,8 @@ enum ProfilePassword {
         return password
     }
 
-    static func write(_ password: String, for id: UUID) throws {
-        let request = query(id)
+    static func write(_ password: String, for id: UUID, ssh: Bool = false) throws {
+        let request = query(id, ssh: ssh)
         let status: OSStatus
         if password.isEmpty {
             status = SecItemDelete(request as CFDictionary)
@@ -93,11 +94,9 @@ final class ConnectionLibrary {
 
     init() {
         var directory = URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")
-        #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"] {
+        if let override = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"], override.hasPrefix("/") {
             directory = URL(filePath: override)
         }
-        #endif
         file = directory.appending(path: "connections.json")
         do {
             if FileManager.default.fileExists(atPath: file.path) {
@@ -130,12 +129,15 @@ final class ConnectionLibrary {
         groups = next
     }
 
-    func save(_ profile: ConnectionProfile, in group: UUID, password: String) throws {
+    func save(_ profile: ConnectionProfile, in group: UUID, password: String, sshPassword: String = "") throws {
         let old = groups.flatMap(\.connections).first { $0.id == profile.id }
         let touchesKeychain = profile.rememberPassword || old?.rememberPassword == true
         let original = touchesKeychain ? try ProfilePassword.read(profile.id) : ""
-        if touchesKeychain { try ProfilePassword.write(profile.rememberPassword ? password : "", for: profile.id) }
+        let touchesSSH = profile.ssh?.rememberSecret == true || old?.ssh?.rememberSecret == true
+        let originalSSH = touchesSSH ? try ProfilePassword.read(profile.id, ssh: true) : ""
         do {
+            if touchesKeychain { try ProfilePassword.write(profile.rememberPassword ? password : "", for: profile.id) }
+            if touchesSSH { try ProfilePassword.write(profile.ssh?.rememberSecret == true ? sshPassword : "", for: profile.id, ssh: true) }
             try update { groups in
                 guard let destination = groups.firstIndex(where: { $0.id == group }) else { throw BrowserError("Choose a connection group.") }
                 if let row = groups[destination].connections.firstIndex(where: { $0.id == profile.id }) {
@@ -146,6 +148,7 @@ final class ConnectionLibrary {
                 }
             }
         } catch {
+            if touchesSSH { try ProfilePassword.write(originalSSH, for: profile.id, ssh: true) }
             if touchesKeychain { try ProfilePassword.write(original, for: profile.id) }
             throw error
         }
