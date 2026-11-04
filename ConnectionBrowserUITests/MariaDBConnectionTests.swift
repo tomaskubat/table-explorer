@@ -46,5 +46,13 @@ final class MariaDBConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.staticTexts["country_names"].exists)
         workspace.staticTexts["country"].doubleClick()
         XCTAssertTrue(workspace.staticTexts["Czechia"].waitForExistence(timeout: 5))
+        workspace.buttons["Filters"].click()
+        workspace.textFields["Filter Value"].replaceText(with: "CZ")
+        workspace.buttons["Apply Filters"].click()
+        XCTAssertTrue(workspace.staticTexts["Austria"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(workspace.staticTexts["Czechia"].exists)
+        XCTAssertTrue(workspace.staticTexts["1 of 1 rows"].exists)
+        workspace.buttons["Unset"].click()
+        XCTAssertTrue(workspace.staticTexts["Austria"].waitForExistence(timeout: 5))
     }
 }

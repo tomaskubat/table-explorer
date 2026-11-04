@@ -28,7 +28,7 @@ struct DatabaseObject: Hashable, Identifiable, Sendable {
     var id: Self { self }
 }
 
-private final class MariaHandle {
+final class MariaHandle {
     let connection: UnsafeMutablePointer<MYSQL>
     init() throws {
         guard let handle = mysql_init(nil) else { throw BrowserError("Could not allocate a MariaDB connection.") }
@@ -57,6 +57,20 @@ private final class MariaHandle {
         if profile.verifyTLS && mysql_get_ssl_cipher(connection) == nil { throw BrowserError("The server did not establish a TLS connection.") }
     }
 
+    static func value(_ data: Data, field: MYSQL_FIELD) -> SQLValue {
+        switch field.type {
+        case MYSQL_TYPE_TINY, MYSQL_TYPE_SHORT, MYSQL_TYPE_LONG, MYSQL_TYPE_LONGLONG, MYSQL_TYPE_INT24, MYSQL_TYPE_YEAR:
+            return .integer(String(decoding: data, as: UTF8.self))
+        case MYSQL_TYPE_FLOAT, MYSQL_TYPE_DOUBLE, MYSQL_TYPE_DECIMAL, MYSQL_TYPE_NEWDECIMAL:
+            return .number(String(decoding: data, as: UTF8.self))
+        default:
+            if field.charsetnr == 63 && [MYSQL_TYPE_BLOB, MYSQL_TYPE_LONG_BLOB, MYSQL_TYPE_MEDIUM_BLOB, MYSQL_TYPE_TINY_BLOB, MYSQL_TYPE_BIT, MYSQL_TYPE_VAR_STRING, MYSQL_TYPE_STRING].contains(field.type) {
+                return .blob(data)
+            }
+            return .text(String(decoding: data, as: UTF8.self))
+        }
+    }
+
     func failure() -> BrowserError {
         BrowserError("MariaDB \(mysql_errno(connection)): \(String(cString: mysql_error(connection)))")
     }
@@ -78,17 +92,7 @@ private final class MariaHandle {
                         guard let bytes = row[i] else { return .null }
                         let data = Data(bytes: bytes, count: Int(lengths[i]))
                         let field = fields[i]
-                        switch field.type {
-                        case MYSQL_TYPE_TINY, MYSQL_TYPE_SHORT, MYSQL_TYPE_LONG, MYSQL_TYPE_LONGLONG, MYSQL_TYPE_INT24, MYSQL_TYPE_YEAR:
-                            return .integer(String(decoding: data, as: UTF8.self))
-                        case MYSQL_TYPE_FLOAT, MYSQL_TYPE_DOUBLE, MYSQL_TYPE_DECIMAL, MYSQL_TYPE_NEWDECIMAL:
-                            return .number(String(decoding: data, as: UTF8.self))
-                        default:
-                            if field.charsetnr == 63 && [MYSQL_TYPE_BLOB, MYSQL_TYPE_LONG_BLOB, MYSQL_TYPE_MEDIUM_BLOB, MYSQL_TYPE_TINY_BLOB, MYSQL_TYPE_BIT, MYSQL_TYPE_VAR_STRING, MYSQL_TYPE_STRING].contains(field.type) {
-                                return .blob(data)
-                            }
-                            return .text(String(decoding: data, as: UTF8.self))
-                        }
+                        return Self.value(data, field: field)
                     }
                     result.rows.append(values)
                 }
@@ -105,7 +109,7 @@ private final class MariaHandle {
     }
 }
 
-private final class SQLiteHandle {
+final class SQLiteHandle {
     let database: OpaquePointer
     init(path: String, create: Bool = false) throws {
         var handle: OpaquePointer?
@@ -122,7 +126,7 @@ private final class SQLiteHandle {
     }
     deinit { sqlite3_close(database) }
 
-    func query(_ sql: String, limit: Int) throws -> QueryResult {
+    func query(_ sql: String, parameters: [SQLValue] = [], limit: Int) throws -> QueryResult {
         try sql.withCString { start in
             var current: UnsafePointer<CChar>? = start
             var result = QueryResult()
@@ -132,6 +136,7 @@ private final class SQLiteHandle {
                 guard prepare == SQLITE_OK else { throw BrowserError("SQLite: \(String(cString: sqlite3_errmsg(database)))") }
                 guard let statement else { continue }
                 defer { sqlite3_finalize(statement) }
+                if !parameters.isEmpty { try bind(parameters, to: statement) }
                 let count = sqlite3_column_count(statement)
                 result = QueryResult(columns: (0..<count).map { String(cString: sqlite3_column_name(statement, $0)) })
                 var status = sqlite3_step(statement)
@@ -185,9 +190,12 @@ actor DatabaseSession {
 
     func close() { maria = nil; sqlite = nil }
 
-    func query(_ sql: String, limit: Int = 1000) throws -> QueryResult {
-        if let maria { return try maria.query(sql, limit: limit) }
-        if let sqlite { return try sqlite.query(sql, limit: limit) }
+    func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {
+        if let maria {
+            if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit) }
+            return try maria.query(sql, limit: limit)
+        }
+        if let sqlite { return try sqlite.query(sql, parameters: parameters, limit: limit) }
         throw BrowserError("This workspace is disconnected.")
     }
 

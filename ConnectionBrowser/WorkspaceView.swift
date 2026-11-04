@@ -100,11 +100,15 @@ private struct WorkspaceTabView: View {
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(tab.busy || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if tab.object != nil {
+                TableControls(workspace: workspace, tab: tab)
+            }
             if tab.busy { ProgressView("Running query…").controlSize(.small) }
             if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            ResultTable(result: tab.result, selected: $tab.selected)
+            ResultTable(result: tab.result, selected: $tab.selected, hidden: tab.hiddenColumns)
             HStack {
-                Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption)
+                if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
+                else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption) }
                 Spacer()
                 if tab.object != nil {
                     Button("Previous Page") {
@@ -114,7 +118,7 @@ private struct WorkspaceTabView: View {
                     Button("Next Page") {
                         tab.offset += tab.limit
                         Task { await workspace.load(tab) }
-                    }.disabled(tab.result.rows.count < tab.limit || tab.busy)
+                    }.disabled(tab.offset + tab.result.rows.count >= tab.totalCount || tab.busy)
                 }
             }
         }.padding(8)
@@ -129,9 +133,10 @@ private struct GridRow: Identifiable {
 struct ResultTable: View {
     let result: QueryResult
     @Binding var selected: Int?
+    var hidden: Set<String> = []
     var body: some View {
         Table(result.rows.enumerated().map { GridRow(id: $0.offset, cells: $0.element) }, selection: $selected) {
-            TableColumnForEach(result.columns.indices, id: \.self) { column in
+            TableColumnForEach(result.columns.indices.filter { !hidden.contains(result.columns[$0]) }, id: \.self) { column in
                 TableColumn(result.columns[column]) { row in
                     Text(row.cells[column].display)
                         .foregroundStyle(row.cells[column] == .null ? .secondary : .primary)

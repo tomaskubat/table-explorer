@@ -13,6 +13,14 @@ final class WorkspaceTab: Identifiable {
     var offset = 0
     var limit = 300
     var selected: Int?
+    var totalCount = 0
+    var filterEditorVisible = false
+    var filters: [ColumnFilter] = []
+    var appliedFilters: [ColumnFilter] = []
+    var hiddenColumns: Set<String> = []
+    var sortColumn: String?
+    var descending = false
+    var requestID = UUID()
     init(title: String, object: DatabaseObject? = nil) { self.title = title; self.object = object }
 }
 
@@ -53,8 +61,19 @@ final class Workspace: Identifiable {
     }
     func load(_ tab: WorkspaceTab) async {
         guard let object = tab.object else { return }
-        let sql = "SELECT * FROM \(DatabaseSession.identifier(object.name)) LIMIT \(tab.limit) OFFSET \(tab.offset)"
-        await execute(sql, on: tab)
+        let request = UUID()
+        tab.requestID = request; tab.busy = true; tab.error = nil
+        defer { if tab.requestID == request { tab.busy = false } }
+        do {
+            let page = try await session.page(of: object, filters: tab.appliedFilters, sortColumn: tab.sortColumn,
+                                              descending: tab.descending, offset: tab.offset, limit: tab.limit)
+            guard request == tab.requestID else { return }
+            log.append(page.sql)
+            tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset; tab.selected = nil
+        } catch {
+            guard request == tab.requestID else { return }
+            tab.error = error.localizedDescription; log.append(error.localizedDescription)
+        }
     }
     func execute(_ sql: String, on tab: WorkspaceTab) async {
         guard connected, !tab.busy else { return }
