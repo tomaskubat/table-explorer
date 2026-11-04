@@ -5,6 +5,7 @@ struct WorkspaceView: View {
     let registry: WorkspaceRegistry
     @State private var search = ""
     @State private var fieldSearch = ""
+    @State private var consoleHeight: CGFloat = 135
     @State private var navigator = "Items"
     @State private var closing: WorkspaceTab?
     @State private var closingSQL: WorkspaceTab?
@@ -101,48 +102,71 @@ struct WorkspaceView: View {
                     }.padding(.horizontal, 8).frame(height: 27)
                 }.frame(minWidth: 175, idealWidth: 245, maxWidth: 285).background(BrowserChrome.panel)
             }
-            VStack(alignment: .leading, spacing: 0) {
-                if workspace.tabs.count > 1 {
-                    GeometryReader { geo in
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 0) {
-                                ForEach(workspace.tabs) { tab in
-                                    Button {
-                                        workspace.activeID = tab.id
-                                    } label: {
-                                        Text(tab.title).lineLimit(1).font(.system(size: 11, weight: tab.id == workspace.activeID ? .semibold : .regular))
-                                            .frame(width: max(100, geo.size.width / CGFloat(workspace.tabs.count)), height: 25)
-                                            .background(tab.id == workspace.activeID ? BrowserChrome.paper : BrowserChrome.bar)
-                                            .contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
-                                    .overlay(alignment: .trailing) { Divider() }
-                                    .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
-                                }
-                            }
-                        }.scrollIndicators(.hidden)
-                    }.frame(height: 25)
-                    Divider()
-                }
-                if let tab = workspace.active {
-                    WorkspaceTabView(workspace: workspace, tab: tab).id(tab.id)
-                } else {
-                    VStack(spacing: 9) {
-                        Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary)
-                        Text("No Open Tabs").font(.callout).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
-                if workspace.showConsole {
-                    Divider()
-                    WorkspaceConsole(workspace: workspace).frame(height: 135)
-                        .focusable().focused($panelFocus, equals: .console)
-                }
+            GeometryReader { area in
+                VStack(alignment: .leading, spacing: 0) {
+                    if workspace.tabs.count > 1 {
+                        tabBar
+                        Divider()
+                    }
+                    if let tab = workspace.active {
+                        WorkspaceTabView(workspace: workspace, tab: tab).id(tab.id)
+                    } else {
+                        VStack(spacing: 9) {
+                            Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary)
+                            Text("No Open Tabs").font(.callout).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
+                    if workspace.showConsole {
+                        // Keep enough space for either the data grid or the SQL editor and result.
+                        let limits = CGFloat(66)...max(66, area.size.height - 294)
+                        let height = min(max(consoleHeight, limits.lowerBound), limits.upperBound)
+                        ConsoleDivider(height: height, limits: limits) { consoleHeight = $0 }
+                            .frame(height: 7)
+                        WorkspaceConsole(workspace: workspace).frame(height: height)
+                            .focusable().focused($panelFocus, equals: .console)
+                    }
+                }.frame(width: area.size.width, height: area.size.height)
             }.frame(minWidth: 490, maxWidth: .infinity, maxHeight: .infinity).background(BrowserChrome.paper)
             if workspace.showDetails {
                 RecordInspector(workspace: workspace, search: $fieldSearch)
                     .focused($panelFocus, equals: .detail).frame(minWidth: 170, idealWidth: 260, maxWidth: 355)
             }
         }
+    }
+
+    private var tabBar: some View {
+        GeometryReader { area in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(workspace.tabs) { tab in
+                        let active = tab.id == workspace.activeID
+                        HStack(spacing: 0) {
+                            Button {
+                                workspace.activeID = tab.id
+                            } label: {
+                                Text(tab.title).lineLimit(1)
+                                    .font(.system(size: 11, weight: active ? .semibold : .regular))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                            Button {
+                                requestClose(tab)
+                            } label: {
+                                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary).frame(width: 24, height: 25).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel("Close " + tab.title).help("Close " + tab.title)
+                                .disabled(tab.busy)
+                        }
+                        .frame(width: max(100, area.size.width / CGFloat(workspace.tabs.count)), height: 25)
+                        .background(active ? BrowserChrome.paper : BrowserChrome.bar)
+                        .overlay(alignment: .trailing) { Divider().allowsHitTesting(false) }
+                        .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
+                    }
+                }
+            }.scrollIndicators(.hidden)
+        }.frame(height: 25)
     }
 
     private func requestClose(_ tab: WorkspaceTab) {

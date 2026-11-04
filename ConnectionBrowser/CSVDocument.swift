@@ -14,6 +14,7 @@ struct CSVSettings: Hashable, Sendable {
     var lineEnding = "LF"
     var quoteAll = false
     var decimalComma = false
+    var flattenLineBreaks = false
 
     var stringEncoding: String.Encoding {
         switch encoding { case "UTF-16": .utf16; case "Latin-1": .isoLatin1; default: .utf8 }
@@ -23,12 +24,16 @@ struct CSVSettings: Hashable, Sendable {
               !["\n", "\r"].contains(delimiter), !["\n", "\r"].contains(quote) else {
             throw BrowserError("Choose distinct, single-character delimiters and quotes.")
         }
-        guard !nullToken.contains(delimiter), !nullToken.contains(quote), !nullToken.contains("\n"), !nullToken.contains("\r") else {
+        guard !nullToken.contains(delimiter), !nullToken.contains(quote), !nullToken.contains(where: \.isNewline) else {
             throw BrowserError("The NULL token cannot contain the delimiter, quote, or a line break.")
         }
     }
-    func encode(_ field: String, forceQuote: Bool = false) -> String {
-        if quoteAll || forceQuote || field.contains(delimiter) || field.contains(quote) || field.contains("\r") || field.contains("\n") {
+    func encode(_ original: String) -> String {
+        // Swift treats CRLF as a single Character. Looking for either half as
+        // a substring misses it and silently splits a CSV record into two.
+        let hasBreak = original.contains(where: \.isNewline)
+        let field = flattenLineBreaks && hasBreak ? String(original.map { $0.isNewline ? " " : $0 }) : original
+        if quoteAll || field.isEmpty || field == nullToken || (hasBreak && !flattenLineBreaks) || field.contains(delimiter) || field.contains(quote) {
             return quote + field.replacingOccurrences(of: quote, with: quote + quote) + quote
         }
         return field
@@ -55,6 +60,7 @@ struct CSVDocument: Sendable {
         if ch == "\u{FEFF}" { ch = scalars.next() }
         var fields: [CSVField] = [], field = "", quoted = false, inside = false, closed = false
         var line = 1, startLine = 1
+        var recordWidth: Int?
         func endField() {
             fields.append(CSVField(text: field, quoted: quoted))
             field = ""; quoted = false; closed = false
@@ -71,8 +77,10 @@ struct CSVDocument: Sendable {
                 }
             } else if current == delimiter { endField() }
             else if current == "\r" || current == "\n" {
-                if !fields.isEmpty || !field.isEmpty || quoted {
+                let blankNull = settings.nullToken.isEmpty && (recordWidth == 1 || (recordWidth == nil && !settings.header))
+                if !fields.isEmpty || !field.isEmpty || quoted || blankNull {
                     endField()
+                    if recordWidth == nil { recordWidth = fields.count }
                     if try !visit(startLine, fields) { return }
                     fields.removeAll(keepingCapacity: true)
                 }

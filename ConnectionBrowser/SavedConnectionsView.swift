@@ -30,7 +30,7 @@ struct SavedConnectionsView: View {
                 Text("Build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))
                     .font(.system(size: 13, weight: .light)).foregroundStyle(.secondary).padding(.top, 11)
                 let count = library.groups.reduce(0) { $0 + $1.connections.count }
-                Text("\(count) saved connections").font(.system(size: 12, weight: .semibold))
+                Text(count == 1 ? "1 saved connection" : "\(count) saved connections").font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary).padding(.top, 17)
                 HStack(spacing: 5) {
                     libraryAction("Export", transfer: .export) { export(library.groups) }

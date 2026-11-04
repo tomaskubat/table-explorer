@@ -159,6 +159,7 @@ final class SQLiteHandle {
                 if !parameters.isEmpty { try bind(parameters, to: statement) }
                 let count = sqlite3_column_count(statement)
                 result = QueryResult(columns: (0..<count).map { String(cString: sqlite3_column_name(statement, $0)) })
+                let changesBefore = sqlite3_total_changes64(database)
                 var status = sqlite3_step(statement)
                 while status == SQLITE_ROW {
                     if result.rows.count < limit {
@@ -180,7 +181,11 @@ final class SQLiteHandle {
                     status = sqlite3_step(statement)
                 }
                 guard status == SQLITE_DONE else { throw BrowserError("SQLite: \(String(cString: sqlite3_errmsg(database)))") }
-                if sqlite3_stmt_readonly(statement) == 0 { result.affectedRows = sqlite3_changes64(database) }
+                // changes64 retains the preceding DML count across DDL. Use the
+                // total only to detect a write, not to count trigger side effects.
+                if sqlite3_stmt_readonly(statement) == 0, sqlite3_total_changes64(database) != changesBefore {
+                    result.affectedRows = sqlite3_changes64(database)
+                }
             }
             return result
         }

@@ -98,7 +98,7 @@ extension DatabaseSession {
                     case let .blob(bytes): text = bytes.base64EncodedString()
                     default: text = value.display
                     }
-                    return request.csv.encode(text, forceQuote: text == request.csv.nullToken)
+                    return request.csv.encode(text)
                 }
                 try write(fields.joined(separator: request.csv.delimiter) + newline)
             case .json:

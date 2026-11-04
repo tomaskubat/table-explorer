@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+ <title>Connection Browser: three amber database platters</title>
+ <defs>
+  <linearGradient id="case" x2=".9" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#23576b"/><stop offset=".56" stop-color="#103448"/><stop offset="1" stop-color="#091b30"/></linearGradient>
+  <linearGradient id="metal"><stop stop-color="#d77629"/><stop offset=".18" stop-color="#ffbb58"/><stop offset=".49" stop-color="#ffcf73"/><stop offset=".82" stop-color="#ec9a3e"/><stop offset="1" stop-color="#bc642e"/></linearGradient>
+  <linearGradient id="lid" x2=".45" y2="1"><stop stop-color="#fff0bd"/><stop offset=".58" stop-color="#ffcc74"/><stop offset="1" stop-color="#f4ad50"/></linearGradient>
+  <linearGradient id="seam"><stop stop-color="#623c31"/><stop offset=".5" stop-color="#8b5c38"/><stop offset="1" stop-color="#513834"/></linearGradient>
+ </defs>
+ <rect x="88" y="106" width="848" height="838" rx="191" fill="#082337" opacity=".17"/>
+ <rect x="88" y="87" width="848" height="848" rx="191" fill="url(#case)"/>
+ <rect x="94" y="93" width="836" height="836" rx="186" fill="none" stroke="#abecf2" stroke-opacity=".18" stroke-width="6"/>
+ <path d="M245 352c0-64 120-116 267-116s267 52 267 116v322c0 65-120 117-267 117S245 739 245 674z" fill="#081d2d" opacity=".58" transform="translate(0 17)"/>
+ <path d="M245 352c0-64 120-116 267-116s267 52 267 116v316c0 64-120 116-267 116S245 732 245 668z" fill="url(#seam)"/>
+ <path id="platter" d="M245 589c33 58 147 97 267 97s234-39 267-97v78c0 61-120 112-267 112s-267-51-267-112z" fill="url(#metal)"/>
+ <path d="M245 475c33 58 147 97 267 97s234-39 267-97v79c0 62-120 113-267 113s-267-51-267-113z" fill="url(#metal)"/>
+ <path d="M245 352c0 62 120 111 267 111s267-49 267-111v87c0 62-120 113-267 113s-267-51-267-113z" fill="url(#metal)"/>
+ <ellipse cx="512" cy="345" rx="267" ry="110" fill="url(#lid)"/>
+ <path d="M258 350c14-48 116-96 247-99" fill="none" stroke="#fff4cc" stroke-width="9" stroke-linecap="round" opacity=".8"/>
+ <g fill="none" stroke="#975d30" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"><path d="m425 318 55 28-52 30"/><path d="m516 374 69-1"/></g>
+</svg>

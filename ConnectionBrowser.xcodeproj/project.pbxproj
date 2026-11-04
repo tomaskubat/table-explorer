@@ -47,7 +47,7 @@
 		AC0000000000000000000010 /* ConnectionBrowser */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AC0000000000000000000041;
-			buildPhases = (AC0000000000000000000022 /* Embed MariaDB */, AC0000000000000000000020 /* Sources */);
+			buildPhases = (AC0000000000000000000022 /* Embed MariaDB */, AC0000000000000000000020 /* Sources */, AC0000000000000000000023 /* Resources */);
 			buildRules = ();
 			dependencies = ();
 			fileSystemSynchronizedGroups = (AC0000000000000000000004 /* ConnectionBrowser */);
@@ -86,6 +86,10 @@
 			targets = (AC0000000000000000000010 /* ConnectionBrowser */, AC0000000000000000000011 /* ConnectionBrowserUITests */);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AC0000000000000000000023 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		AC0000000000000000000022 /* Embed MariaDB */ = {

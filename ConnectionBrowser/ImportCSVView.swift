@@ -180,6 +180,7 @@ struct CSVOptionsView: View {
                 Toggle("Header row", isOn: $settings.header)
                 Toggle("Quote all fields", isOn: $settings.quoteAll)
                 Toggle("Decimal comma", isOn: $settings.decimalComma)
+                Toggle("Replace line breaks with spaces", isOn: $settings.flattenLineBreaks)
                 Form {
                     delimiter; quote
                     Picker("Line ending", selection: $settings.lineEnding) {

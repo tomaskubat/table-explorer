@@ -45,3 +45,7 @@ Run Options → Enable Query Parameters turns on SQL expressions in the editor. 
 A click in the grid selects a row and marks the active column. Closing the cell editor returns to that cell. Return starts inline editing when the column is writable.
 
 After reconnecting, File → Recover SQL Draft opens locally recovered text for the same profile and database. Running the text requires an explicit command. Discarding or saving a tab clears its recovery copy. Passwords for MariaDB and SSH use separate Keychain entries. Profile exports omit those passwords and any bootstrap script.
+
+SQLite ověříš příkazem `Scripts/check-sqlite.sh`. Skript si vytvoří dočasnou testovací databázi.
+
+Zdroj [ikony aplikace](Design/Database.svg) lze upravit jako SVG. Příkaz `Scripts/make-app-icon.sh` z něj vytvoří macOS prostředek, který Xcode přibalí do aplikace.
