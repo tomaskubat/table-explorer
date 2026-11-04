@@ -5,6 +5,10 @@ final class ConnectionGroupTests: XCTestCase {
     func testCollapsingAndExpandingOneGroupPreservesItsNeighbors() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
+        app.launchArguments = ["--sample-connections"]
         app.launch()
 
         let window = app.windows["Saved Connections"]

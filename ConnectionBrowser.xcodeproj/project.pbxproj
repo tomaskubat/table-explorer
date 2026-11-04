@@ -47,7 +47,7 @@
 		AC0000000000000000000010 /* ConnectionBrowser */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AC0000000000000000000041;
-			buildPhases = (AC0000000000000000000020 /* Sources */);
+			buildPhases = (AC0000000000000000000022 /* Embed MariaDB */, AC0000000000000000000020 /* Sources */);
 			buildRules = ();
 			dependencies = ();
 			fileSystemSynchronizedGroups = (AC0000000000000000000004 /* ConnectionBrowser */);
@@ -87,6 +87,19 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		AC0000000000000000000022 /* Embed MariaDB */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ("$(SRCROOT)/Scripts/embed-mariadb.sh", "/opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.3.dylib");
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libmariadb.dylib");
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$SRCROOT/Scripts/embed-mariadb.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		AC0000000000000000000020 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		AC0000000000000000000021 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
@@ -105,7 +118,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -121,7 +134,7 @@
 				ARCHS = arm64;
 				CODE_SIGN_IDENTITY = "-";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 6.0;
@@ -135,6 +148,11 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
+				HEADER_SEARCH_PATHS = "/opt/homebrew/opt/mariadb-connector-c/include/mariadb";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Drivers";
+				LIBRARY_SEARCH_PATHS = "$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = "Connection Browser";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				PRODUCT_BUNDLE_IDENTIFIER = "local.connectionbrowser.app";
@@ -148,6 +166,11 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
+				HEADER_SEARCH_PATHS = "/opt/homebrew/opt/mariadb-connector-c/include/mariadb";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Drivers";
+				LIBRARY_SEARCH_PATHS = "$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = "Connection Browser";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				PRODUCT_BUNDLE_IDENTIFIER = "local.connectionbrowser.app";
