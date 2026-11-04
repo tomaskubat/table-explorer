@@ -124,6 +124,8 @@ enum DatabaseMaintenance {
             } else if profile.verifyTLS {
                 args += tool.maria ? ["--ssl", "--ssl-verify-server-cert"] : ["--ssl-mode=VERIFY_IDENTITY"]
                 args += ["--ssl-ca=" + (profile.caPath.isEmpty ? "/etc/ssl/cert.pem" : profile.caPath)]
+            } else if profile.usesPreferredTLS {
+                args += tool.maria ? ["--ssl", "--skip-ssl-verify-server-cert"] : ["--ssl-mode=PREFERRED"]
             } else { args.append(tool.maria ? "--skip-ssl" : "--ssl-mode=DISABLED") }
             let handle = try request.action == .backup ? FileHandle(forWritingTo: snapshot) : FileHandle(forReadingFrom: snapshot)
             defer { try? handle.close() }

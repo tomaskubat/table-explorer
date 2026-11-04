@@ -3,12 +3,22 @@ import Foundation
 
 struct SSHSettings: Codable, Hashable {
     var host = ""
-    var port = "22"
+    var port = "" // An empty override lets OpenSSH choose the configured port.
     var user = ""
     var identityFile = ""
     var knownHostsFile = ""
     var rememberSecret = false
+    var keyOnly: Bool?
     var databaseFingerprint = ""
+
+    var isValid: Bool {
+        // OpenSSH can substitute these values into a configured ProxyCommand.
+        let hostCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:%")
+        let userCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_+@\\")
+        return !host.isEmpty && !host.hasPrefix("-") && host.unicodeScalars.allSatisfy(hostCharacters.contains)
+            && !user.hasPrefix("-") && user.unicodeScalars.allSatisfy(userCharacters.contains)
+            && (port.isEmpty || UInt16(port).map { $0 > 0 } == true)
+    }
 }
 
 /// The socket is private to this application session. OpenSSH performs host
@@ -34,8 +44,7 @@ final class SSHTunnel {
     }
 
     func start(profile: ConnectionProfile, settings: SSHSettings, secret: String) throws {
-        guard !settings.host.isEmpty, !settings.host.hasPrefix("-"), !settings.user.isEmpty,
-              UInt16(settings.port).map({ $0 > 0 }) == true else { throw BrowserError("Enter the SSH host, user, and port.") }
+        guard settings.isValid else { throw BrowserError("Enter a valid SSH host or config alias. If set, the SSH port must be between 1 and 65535.") }
         guard !secret.contains("\0"), !secret.contains("\n"), !secret.contains("\r"), secret.utf8.count < 2048 else {
             throw BrowserError("The SSH password or passphrase must fit on a single line.")
         }
@@ -48,10 +57,18 @@ final class SSHTunnel {
             guard !remoteHost.isEmpty, UInt16(profile.port).map({ $0 > 0 }) == true else { throw BrowserError("Enter the database host and port as seen from the SSH server.") }
             target = remoteHost + ":" + profile.port
         }
-        var arguments = ["-F", "/dev/null", "-N", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
+        var arguments = ["-N", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
                          "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=8", "-o", "ConnectionAttempts=1",
                          "-o", "NumberOfPasswordPrompts=1", "-o", "ForwardAgent=no", "-o", "ServerAliveInterval=15",
-                         "-o", "ServerAliveCountMax=2", "-p", settings.port, "-l", settings.user]
+                         "-o", "ServerAliveCountMax=2", "-o", "ControlPath=none", "-o", "ControlMaster=no",
+                         "-o", "ForkAfterAuthentication=no", "-o", "PermitLocalCommand=no", "-o", "RemoteCommand=none"]
+        // Normally ssh reads ~/.ssh/config itself, including Host, Match and Include.
+        if let config = ProcessInfo.processInfo.environment["TABLE_EXPLORER_SSH_CONFIG"], !config.isEmpty {
+            arguments += ["-F", config]
+        }
+        if !settings.port.isEmpty { arguments += ["-p", settings.port] }
+        if !settings.user.isEmpty { arguments += ["-l", settings.user] }
+        if settings.keyOnly == true { arguments += ["-o", "PreferredAuthentications=publickey"] }
         if !settings.identityFile.isEmpty {
             arguments += ["-o", "IdentitiesOnly=yes", "-i", (settings.identityFile as NSString).expandingTildeInPath]
         }
@@ -78,7 +95,8 @@ final class SSHTunnel {
             guard descriptor >= 0, bytes.withUnsafeBytes({ Darwin.write(descriptor, $0.baseAddress, $0.count) }) == bytes.count else {
                 throw BrowserError("Could not pass credentials to OpenSSH.")
             }
-            if settings.identityFile.isEmpty { arguments += ["-o", "PreferredAuthentications=password,keyboard-interactive"] }
+            // A key supplied by the host's config may need the entered passphrase.
+            arguments += ["-o", "BatchMode=no"]
             environment["SSH_ASKPASS_REQUIRE"] = "force"
             environment["SSH_ASKPASS"] = helper.path
             environment["CB_ASKPASS_FIFO"] = fifo

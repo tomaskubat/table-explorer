@@ -55,11 +55,12 @@ struct ProfileEditor: View {
     @State private var succeeded = false
     @State private var busy = false
 
-    init(library: ConnectionLibrary, profile: ConnectionProfile, groupID: UUID, initialPassword: String = "", initialError: String? = nil,
+    init(library: ConnectionLibrary, profile: ConnectionProfile, groupID: UUID, initialPassword: String = "", initialSSHPassword: String = "", initialError: String? = nil,
          onConnect: @escaping (ConnectionProfile, DatabaseSession, String, String, String) -> Void) {
         self.library = library; self.onConnect = onConnect
         _profile = State(initialValue: profile); _groupID = State(initialValue: groupID)
         _password = State(initialValue: initialPassword)
+        _sshPassword = State(initialValue: initialSSHPassword)
         _error = State(initialValue: initialError)
     }
 
@@ -123,10 +124,13 @@ struct ProfileEditor: View {
     }
     private func sshFields(_ ssh: Binding<SSHSettings>) -> some View {
         Section("SSH tunnel") {
-            TextField("SSH Host", text: ssh.host).accessibilityIdentifier("SSH Host")
-            TextField("SSH Port", text: ssh.port).accessibilityIdentifier("SSH Port")
-            TextField("SSH User", text: ssh.user).accessibilityIdentifier("SSH User")
-            TextField("Private Key File", text: ssh.identityFile).accessibilityIdentifier("Private Key File")
+            TextField("SSH Host", text: ssh.host, prompt: Text("Hostname or ~/.ssh/config alias")).accessibilityIdentifier("SSH Host")
+            TextField("SSH Port", text: ssh.port, prompt: Text("From SSH config")).accessibilityIdentifier("SSH Port")
+            TextField("SSH User", text: ssh.user, prompt: Text("From SSH config")).accessibilityIdentifier("SSH User")
+            HStack {
+                TextField("Private Key File", text: ssh.identityFile).accessibilityIdentifier("Private Key File")
+                Toggle("Key only", isOn: Binding(get: { ssh.wrappedValue.keyOnly == true }, set: { ssh.wrappedValue.keyOnly = $0 }))
+            }
             SecureField("SSH Password or Key Passphrase", text: $sshPassword).accessibilityIdentifier("SSH Password")
             Toggle("Remember SSH secret in Keychain", isOn: ssh.rememberSecret)
             TextField("Known Hosts File", text: ssh.knownHostsFile).accessibilityIdentifier("Known Hosts File")
@@ -144,6 +148,7 @@ struct ProfileEditor: View {
         HStack {
             TextField("Environment", text: $profile.environment).accessibilityIdentifier("Environment")
             Picker("Color Tag", selection: Binding(get: { profile.tagColor ?? "Teal" }, set: { profile.tagColor = $0 })) {
+                if let custom = profile.tagColor, custom.hasPrefix("#") { Text(custom).tag(custom) }
                 ForEach(["Teal", "Blue", "Purple", "Orange", "Red", "Green"], id: \.self) { Text($0) }
             }
         }
@@ -167,7 +172,12 @@ struct ProfileEditor: View {
             SecureField("Password", text: $password).accessibilityIdentifier("Password")
             Toggle("Remember password in Keychain", isOn: $profile.rememberPassword)
             TextField("Database", text: $profile.database).accessibilityIdentifier("Database")
-            Toggle("Require verified TLS", isOn: $profile.verifyTLS)
+            HStack {
+                Toggle("Require verified TLS", isOn: $profile.verifyTLS)
+                if !profile.verifyTLS {
+                    Toggle("Prefer TLS when available", isOn: Binding(get: { profile.usesPreferredTLS }, set: { profile.preferTLS = $0 }))
+                }
+            }
             if profile.verifyTLS && profile.ssh == nil { TextField("CA Certificate Path", text: $profile.caPath).accessibilityIdentifier("CA Certificate Path") }
 
         } else {
@@ -208,7 +218,7 @@ struct ProfileEditor: View {
     private var canSave: Bool { !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && canConnect }
     private var canConnect: Bool {
         if profile.driver == .sqlite { return !profile.filePath.isEmpty }
-        if let ssh = profile.ssh, ssh.host.isEmpty || ssh.user.isEmpty || UInt16(ssh.port).map({ $0 > 0 }) != true { return false }
+        if let ssh = profile.ssh, !ssh.isValid { return false }
         return !profile.user.isEmpty && (profile.usesSocket ? !profile.socketPath.isEmpty : !profile.host.isEmpty && UInt16(profile.port).map { $0 > 0 } == true)
     }
 

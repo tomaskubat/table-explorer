@@ -19,6 +19,8 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var socketPath = ""
     var usesSocket = false
     var verifyTLS = true
+    var preferTLS: Bool? // Optional for profiles saved before preferred TLS was supported.
+    var usesPreferredTLS: Bool { !verifyTLS && preferTLS == true }
     var caPath = ""
     var filePath = ""
     var rememberPassword = false

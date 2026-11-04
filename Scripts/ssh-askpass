@@ -3,7 +3,10 @@
 # argv, the child's environment, a regular file, or SSH diagnostics.
 case "$1" in
     *assword*|*assphrase*)
-        IFS= read -r answer < "$CB_ASKPASS_FIFO" || exit 1
+        # Only the first prompt may use the supplied secret. Fail immediately
+        # if OpenSSH tries another key or authentication method.
+        /bin/mv "$CB_ASKPASS_FIFO" "$CB_ASKPASS_FIFO.used" 2>/dev/null || exit 1
+        IFS= read -r answer < "$CB_ASKPASS_FIFO.used" || exit 1
         printf '%s\n' "$answer"
         ;;
     *) exit 1 ;;

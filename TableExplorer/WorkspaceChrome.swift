@@ -4,10 +4,15 @@ struct WorkspaceTitleBar: View {
     @Bindable var workspace: Workspace
     let closeTab: () -> Void
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.colorScheme) private var colorScheme
 
     private var statusColor: Color {
         let p = workspace.profile
         return p.tagColor != nil ? p.badgeColor : p.driver == .sqlite ? BrowserChrome.paper : p.environmentColor
+    }
+    private var statusOpacity: Double {
+        if workspace.profile.tagColor?.hasPrefix("#") == true { return colorScheme == .dark ? 0.25 : 1 }
+        return workspace.profile.driver == .sqlite && workspace.profile.tagColor == nil ? 0.9 : 0.18
     }
 
     var body: some View {
@@ -32,7 +37,7 @@ struct WorkspaceTitleBar: View {
                 EnvironmentBadge(profile: workspace.profile)
             }
             .padding(.horizontal, 5).frame(height: 22)
-            .background(statusColor.opacity(workspace.profile.driver == .sqlite && workspace.profile.tagColor == nil ? 0.9 : 0.18), in: RoundedRectangle(cornerRadius: 3))
+            .background(statusColor.opacity(statusOpacity), in: RoundedRectangle(cornerRadius: 3))
             .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(BrowserChrome.line, lineWidth: 0.7) }
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture(count: 2).onEnded { workspace.window?.zoom(nil) })

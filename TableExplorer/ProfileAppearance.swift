@@ -18,7 +18,10 @@ extension ConnectionProfile {
         return environment.lowercased() == "local" ? .green : .orange
     }
     var badgeColor: Color {
-        switch tagColor {
+        if let tagColor, tagColor.hasPrefix("#"), tagColor.count == 7, let rgb = UInt32(tagColor.dropFirst(), radix: 16) {
+            return Color(red: Double(rgb >> 16) / 255, green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255)
+        }
+        return switch tagColor {
         case "Blue": .blue
         case "Purple": .purple
         case "Orange": .orange

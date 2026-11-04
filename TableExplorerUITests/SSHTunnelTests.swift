@@ -2,6 +2,66 @@ import XCTest
 
 final class SSHTunnelTests: XCTestCase {
     @MainActor
+    func testImportsTablePlusURLAndConnectsUsingIncludedSSHAlias() throws {
+        try exerciseImportedURL(passwordAuth: false)
+    }
+
+    @MainActor
+    func testImportsBothPasswordsAndOverridesSSHConfigUserAndPort() throws {
+        try exerciseImportedURL(passwordAuth: true)
+    }
+
+    @MainActor
+    private func exerciseImportedURL(passwordAuth: Bool) throws {
+        // The second server requires database TLS, independently of SSH.
+        let port: UInt16 = passwordAuth ? 33464 : 33463
+        try XCTSkipUnless(fixtureListening(port), "Run sh Tests/Fixtures/SSH/start-ssh.sh")
+        continueAfterFailure = false
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: ".build/SSHFixture")
+        let app = XCUIApplication()
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let hosts = directory.appending(path: "hosts")
+        let config = directory.appending(path: "config")
+        try """
+        Host qa-bastion
+            HostName 127.0.0.1
+            Port \(passwordAuth ? "1" : "33463")
+            User \(passwordAuth ? "wrong-user" : "tunnel")
+            PreferredAuthentications \(passwordAuth ? "password" : "publickey")
+            IdentitiesOnly yes
+            IdentityFile "\(fixture.appending(path: "client").path)"
+            UserKnownHostsFile "\(fixture.appending(path: "known_hosts").path)"
+        """.write(to: hosts, atomically: true, encoding: .utf8)
+        try "Include \"\(hosts.path)\"\n".write(to: config, atomically: true, encoding: .utf8)
+        app.launchEnvironment["TABLE_EXPLORER_SSH_CONFIG"] = config.path
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
+        app.launch()
+        app.buttons["New Connection"].click()
+        app.buttons["Import from URL"].click()
+        let server = passwordAuth ? "tunnel:tunnel-fixture@qa-bastion:\(port)" : "qa-bastion"
+        let options = "statusColor=FFD7D4&enviroment=production&name=reader%40qa&tLSMode=0&usePrivateKey=\(!passwordAuth)&safeModeLevel=0&advancedSafeModeLevel=0"
+        app.textFields["Connection URL"].replaceText(with: "mariadb+ssh://" + server + "/browser:local-fixture@database/catalog?" + options)
+        app.buttons["Import"].click()
+        XCTAssertTrue(app.textFields["Connection Name"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.textFields["User"].value as? String, "browser")
+        XCTAssertEqual(app.textFields["Database"].value as? String, "catalog")
+        XCTAssertEqual(app.textFields["Connection Name"].value as? String, "reader@qa")
+        XCTAssertEqual(app.textFields["Environment"].value as? String, "production")
+        XCTAssertTrue(app.buttons["Save and Connect"].isEnabled)
+        app.buttons["Save and Connect"].click()
+        let table = app.windows.containing(.staticText, identifier: "country").staticTexts["country"].firstMatch
+        XCTAssertTrue(table.waitForExistence(timeout: 15), app.staticTexts["connectionError"].exists ? String(describing: app.staticTexts["connectionError"].value) : "No database workspace")
+        table.doubleClick()
+        XCTAssertTrue(app.staticTexts["Czechia"].waitForExistence(timeout: 5))
+        let saved = try String(contentsOf: directory.appending(path: "connections.json"), encoding: .utf8)
+        XCTAssertFalse(saved.contains("local-fixture"))
+        XCTAssertFalse(saved.contains("tunnel-fixture"))
+        XCTAssertTrue(saved.contains("qa-bastion"))
+    }
+
+    @MainActor
     func testRejectsUnknownHostKeyAndOpensMariaDBWithAnSSHIdentity() throws {
         try exercise(identity: true, tls: false)
     }

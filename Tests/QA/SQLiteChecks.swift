@@ -12,7 +12,34 @@ import Synchronization
             exit(1)
         }
     }
+    private static func checkSSHAddresses() throws {
+        let full = try ProfileAddress.parse("mysql+ssh://jump:s%40s@qa-alias:2222/reader:d%3A%40%2F%25@[::1]:3307/catalog%20qa")
+        try check(full.profile.ssh?.host == "qa-alias" && full.profile.ssh?.port == "2222" && full.profile.ssh?.user == "jump" && full.sshPassword == "s@s",
+                  "TablePlus SSH credentials are distinct from database credentials")
+        try check(full.profile.host == "[::1]" && full.profile.port == "3307" && full.profile.database == "catalog qa" && full.profile.user == "reader" && full.password == "d:@/%",
+                  "inner IPv6 endpoint and URL-encoded database credentials decode once")
+        let short = try ProfileAddress.parse("mariadb+ssh://jump@qa-alias/reader:d%40b")
+        try check(short.profile.host == "127.0.0.1" && short.profile.port == "3306" && short.profile.database.isEmpty && short.profile.user == "reader" && short.password == "d@b" && short.profile.ssh?.port == "",
+                  "compact URL imports database credentials for the SSH server's loopback address")
+        let tablePlus = try ProfileAddress.parse("mariadb+ssh://jump@qa-alias/reader:d%40b@db/catalog?statusColor=FFD7D4&enviroment=production&name=qa%40db&tLSMode=0&usePrivateKey=true&safeModeLevel=0&advancedSafeModeLevel=0")
+        try check(tablePlus.profile.usesPreferredTLS && tablePlus.profile.ssh?.keyOnly == true && tablePlus.profile.database == "catalog" && tablePlus.profile.host == "db" && tablePlus.profile.name == "qa@db" && tablePlus.profile.environment == "production" && tablePlus.profile.tagColor == "#FFD7D4",
+                  "TablePlus export preserves preferred TLS, key authentication, production tag, name and status color")
+        let copied = try ProfileAddress.url(tablePlus.profile).map { try ProfileAddress.parse($0.absoluteString) }
+        try check(copied?.profile.usesPreferredTLS == true && copied?.profile.ssh?.keyOnly == true && copied?.profile.environment == "production" && copied?.profile.tagColor == "#FFD7D4", "copying the profile retains imported settings")
+        let inherited = try ProfileAddress.parse("mariadb://reader@localhost/catalog?ssh-host=qa-alias")
+        try check(inherited.profile.ssh?.user == "" && inherited.profile.ssh?.port == "", "omitted SSH settings inherit config even in legacy URLs")
+        let exported = try ProfileAddress.url(full.profile).map { try ProfileAddress.parse($0.absoluteString) }
+        try check(exported?.profile.ssh == full.profile.ssh && exported?.profile.database == full.profile.database && exported?.password == "" && exported?.sshPassword == "",
+                  "copying an SSH connection URL preserves its endpoint and omits both passwords")
+        for url in ["mariadb+ssh://qa-alias:65536/reader:dummy", "mysql+ssh://qa-alias/reader:dummy@db:99999999999999999999999/catalog",
+                    "mariadb+ssh://qa-alias/reader:dummy@/catalog", "mariadb+ssh://qa-alias/reader:dummy#fragment"] {
+            do { _ = try ProfileAddress.parse(url) }
+            catch { try check(!error.localizedDescription.contains("dummy"), "invalid SSH URL rejected without exposing credentials"); continue }
+            throw BrowserError("FAIL: malformed SSH URL accepted")
+        }
+    }
     private static func run() async throws {
+        try checkSSHAddresses()
         let path = CommandLine.arguments[1]
         let support = URL(filePath: path).deletingLastPathComponent().appending(path: "Application Support")
         let legacy = support.appending(path: "ConnectionBrowser", directoryHint: .isDirectory)

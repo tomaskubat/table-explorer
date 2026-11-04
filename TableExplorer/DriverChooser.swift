@@ -9,13 +9,14 @@ struct DriverChooser: View {
     @State private var driver: DatabaseDriver?
     @State private var profile = ConnectionProfile()
     @State private var password = ""
+    @State private var sshPassword = ""
     @State private var address = ""
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         switch step {
-        case .settings: ProfileEditor(library: library, profile: profile, groupID: groupID, initialPassword: password, onConnect: onConnect)
+        case .settings: ProfileEditor(library: library, profile: profile, groupID: groupID, initialPassword: password, initialSSHPassword: sshPassword, onConnect: onConnect)
         case .group: GroupEditor(library: library, group: ConnectionGroup(name: ""))
         case .address:
             VStack(alignment: .leading, spacing: 12) {
@@ -23,7 +24,7 @@ struct DriverChooser: View {
                 TextField("mariadb://user@localhost/catalog", text: $address).accessibilityIdentifier("Connection URL")
                 if let error { Text(error).foregroundStyle(.red) }
                 HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Import") {
-                    do { (profile, password) = try ProfileAddress.parse(address); step = .settings }
+                    do { (profile, password, sshPassword) = try ProfileAddress.parse(address); address = ""; step = .settings }
                     catch { self.error = error.localizedDescription }
                 }.keyboardShortcut(.defaultAction).disabled(address.isEmpty) }
             }.padding(20).frame(width: 450)

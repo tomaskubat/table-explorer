@@ -45,9 +45,12 @@ final class MariaHandle {
         mysql_options(connection, MYSQL_SET_CHARSET_NAME, "utf8mb4")
         var localInfile: UInt32 = 0
         mysql_options(connection, MYSQL_OPT_LOCAL_INFILE, &localInfile)
-        var tls: my_bool = profile.verifyTLS ? 1 : 0
-        mysql_options(connection, MYSQL_OPT_SSL_ENFORCE, &tls)
-        mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &tls)
+        // Connector/C negotiates TLS when requested; with verification off it
+        // also accepts servers that do not advertise TLS (TablePlus PREFERRED).
+        var requestTLS: my_bool = profile.verifyTLS || profile.usesPreferredTLS ? 1 : 0
+        var verifyCertificate: my_bool = profile.verifyTLS ? 1 : 0
+        mysql_options(connection, MYSQL_OPT_SSL_ENFORCE, &requestTLS)
+        mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verifyCertificate)
         if profile.verifyTLS, let ssh = profile.ssh {
             // Connector/C sees a local socket behind OpenSSH. Pin the remote
             // database certificate explicitly rather than verifying localhost.
