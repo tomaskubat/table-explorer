@@ -1,13 +1,7 @@
 name: Release
 on:
   push:
-    branches: [main]
     tags: ['v*']
-    paths:
-      - .github/workflows/release.yml
-      - Scripts/package-release.sh
-      - Scripts/sign-release.sh
-      - Scripts/verify-update.swift
   workflow_dispatch:
     inputs:
       tag:
@@ -15,31 +9,43 @@ on:
         required: true
         type: string
 permissions:
-  contents: write
-concurrency:
-  group: publish-connection-browser
-  cancel-in-progress: false
+  contents: read
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  check-packaging:
-    if: github.event_name == 'push' && github.ref_type == 'branch'
-    permissions:
-      contents: read
-    runs-on: macos-26
-    timeout-minutes: 35
+  select-builder:
+    runs-on: ubuntu-latest
+    outputs:
+      cloud: ${{ steps.select.outputs.cloud }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: brew install mariadb-connector-c
-      - run: Scripts/package-release.sh v0.0.0
+      - id: select
+        name: Check who builds this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
+          cloud=true
+          if [[ $(jq -r .object.type <<< "$ref") == tag ]]; then
+            sha=$(jq -r .object.sha <<< "$ref")
+            subject=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.message | split("\n")[0]')
+            if [[ $subject == 'Publish from local Mac' ]]; then cloud=false; fi
+          fi
+          echo "cloud=$cloud" >> "$GITHUB_OUTPUT"
 
   release:
-    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    needs: select-builder
+    if: needs.select-builder.outputs.cloud == 'true'
     runs-on: macos-26
     timeout-minutes: 35
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-connection-browser
+      cancel-in-progress: false
     env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     defaults:
       run:
@@ -50,29 +56,12 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
 
-      - name: Check the version and build environment
+      - name: Check version and install build dependency
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          [[ $(uname -m) == arm64 ]]
-          xcodebuild -version
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > "$RUNNER_TEMP/versions"
-          python3 - "$RELEASE_TAG" "$RUNNER_TEMP/versions" <<'PY'
-          import pathlib, re, sys
-          pattern = r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
-          tag = re.fullmatch(pattern, sys.argv[1])
-          if not tag:
-              sys.exit("Expected vX.Y.Z")
-          version = tuple(map(int, tag.groups()))
-          for previous in pathlib.Path(sys.argv[2]).read_text().splitlines():
-              old = re.fullmatch(pattern, previous)
-              if old and tuple(map(int, old.groups())) >= version:
-                  sys.exit(f"Release must be newer than {previous}")
-          PY
-
-      - name: Install the build dependency
-        run: brew install mariadb-connector-c
+          Scripts/release.sh check-version "$RELEASE_TAG"
+          brew install mariadb-connector-c
 
       - name: Test SQLite and package the standalone app
         run: |
@@ -84,29 +73,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: Scripts/sign-release.sh "$RELEASE_TAG"
 
-      - name: Publish the verified assets together
+      - name: Publish and verify anonymous downloads
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cd ".build/distribution/$RELEASE_TAG"
-          archive="ConnectionBrowser-${RELEASE_TAG#v}-arm64.zip"
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-            --title "Connection Browser ${RELEASE_TAG#v}" --notes "Stáhni ZIP pro Apple Silicon a rozbal aplikaci do složky Aplikace. Vyžaduje macOS 26 nebo novější." \
-            "$archive" appcast.xml SHA256SUMS.txt
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
-
-      - name: Verify anonymous downloads from the production feed
-        run: |
-          set -euo pipefail
-          verify="$RUNNER_TEMP/published"
-          mkdir "$verify"
-          archive="ConnectionBrowser-${RELEASE_TAG#v}-arm64.zip"
-          url="https://github.com/$GITHUB_REPOSITORY/releases"
-          for asset in "$archive" SHA256SUMS.txt; do
-            curl --fail --silent --show-error --location --retry 5 --retry-all-errors "$url/download/$RELEASE_TAG/$asset" -o "$verify/$asset"
-          done
-          curl --fail --silent --show-error --location --retry 5 --retry-all-errors "$url/latest/download/appcast.xml" -o "$verify/appcast.xml"
-          cmp ".build/distribution/$RELEASE_TAG/SHA256SUMS.txt" "$verify/SHA256SUMS.txt"
-          (cd "$verify" && shasum -a 256 -c SHA256SUMS.txt)
-          swift Scripts/verify-update.swift "$verify" "${RELEASE_TAG#v}" Configuration/sparkle-public-key.txt
+        run: Scripts/release.sh publish-ci "$RELEASE_TAG"

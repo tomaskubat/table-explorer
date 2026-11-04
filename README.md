@@ -58,8 +58,19 @@ Dvojklik na barevný pruh s názvem databáze zvětší pracovní okno na dostup
 
 [Stáhnout poslední vydání pro Apple Silicon](https://github.com/tomaskubat/table-explorer/releases/latest)
 
-Vydání publikuje GitHub Actions při odeslání nového rostoucího tagu `vX.Y.Z` (například `git tag v0.1.1` a `git push origin v0.1.1`). Po testech workflow zabalí aplikaci včetně MariaDB, OpenSSL a Sparkle, ověří přenositelnost i podpis rozbalené aplikace a až poté zveřejní ZIP, podepsaný `appcast.xml` a `SHA256SUMS.txt`. Nakonec ověří anonymní stažení souborů ze stejného kanálu jako instalované aplikace.
+### Vydání z vlastního Macu
 
-Pokud se po odeslání tagu běh nespustí, zvol na GitHubu **Actions → Release → Run workflow** na větvi `main` a zadej existující tag. Sestaví se přesně označený commit.
+Na Macu s Apple Silicon potřebuješ Xcode, `brew install mariadb-connector-c gh`, přihlášení přes `gh auth login`, právo pushovat na `origin` a podpisový klíč Sparkle v Klíčence pod účtem `local.connectionbrowser.app`. Číslo nové verze zadej bez úvodního `v`.
 
-Pro místní sestavení a kontrolu vydání spusť `Scripts/package-release.sh v0.1.1` a `Scripts/sign-release.sh v0.1.1`. Výstup najdeš v `.build/distribution/v0.1.1/`. Podepisování používá účet `local.connectionbrowser.app` v Klíčence nebo repository secret `SPARKLE_PRIVATE_KEY` v Actions. Veřejný klíč je v `Configuration/sparkle-public-key.txt`. Soukromý klíč zálohuj spolu s Klíčenkou. Pro budoucí vydání potřebuješ stejný klíč. Vývojové sestavení spuštěné z Xcode aktualizace nekontroluje.
+    make release-check VERSION=0.1.1
+    make release VERSION=0.1.1
+
+První příkaz je volitelná zkouška. Spustí testy SQLite, sestaví a podepíše ZIP i aktualizační kanál. Výsledek uloží do `.build/distribution/v0.1.1/`. Druhý příkaz spusť na čisté větvi `main` s commitnutými změnami. Sám provede stejné kontroly, vytvoří tag a odešle ho spolu s větví na GitHub jedním pushem. Nahraje soubory do konceptu GitHub Release, zveřejní jej a ověří anonymní stažení i podpisy.
+
+Při přerušení před zveřejněním spusť `make release` znovu se stejnou verzí na stejném commitu. Po zveřejnění lze zopakovat samotnou kontrolu příkazem `make release-verify VERSION=0.1.1`, dokud je tato verze nejnovější. Další vydání vyžaduje vyšší číslo a stejný klíč Sparkle. Veřejná část klíče je v `Configuration/sparkle-public-key.txt`.
+
+### Vydání přes GitHub Actions
+
+Pokud chceš sestavovat na GitHubu, vytvoř běžný tag, například `git tag v0.1.1`, a odešli ho přes `git push origin v0.1.1`. Workflow otestuje aplikaci, sestaví ji na macOS a podepíše prostřednictvím repository secretu `SPARKLE_PRIVATE_KEY`. Běh lze také spustit přes **Actions → Release → Run workflow** pro existující běžný tag.
+
+Tag vytvořený přes `make release` nese poznámku `Publish from local Mac`. U takového tagu workflow skončí po přečtení poznámky na Linuxu. Lokální vydání na tento běh nečeká a funguje i při vypnutých Actions.
