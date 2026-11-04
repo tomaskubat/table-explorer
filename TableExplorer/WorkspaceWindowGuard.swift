@@ -27,6 +27,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
         private weak var window: NSWindow?
         var closeActiveTab: () -> Void
         private var shortcutMonitor: Any?
+        private var placement: WorkspaceWindowPlacement?
         // AppKit dispatches window delegate callbacks on the main thread. The
         // Objective-C forwarding hooks themselves have no isolation annotations.
         nonisolated(unsafe) private weak var original: (any NSWindowDelegate)?
@@ -37,6 +38,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
             guard let window, window.delegate !== self else { return }
             detach()
             original = window.delegate; self.window = window; workspace.window = window; window.delegate = self
+            placement = WorkspaceWindowPlacement(window)
             // Native documents and sheets keep their own Save and Close commands.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
                 guard let self, let window, window.isKeyWindow, window.attachedSheet == nil,
@@ -50,6 +52,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
             }
         }
         func detach() {
+            placement = nil
             if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
             if workspace.window === window { workspace.window = nil }
             if window?.delegate === self { window?.delegate = original }
@@ -116,4 +119,43 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
             original?.windowWillClose?(notification)
         }
     }
+}
+
+/// Share one AppKit frame descriptor across workspace windows, without sharing
+/// an autosave name (AppKit only allows one live window to own each name).
+@MainActor private final class WorkspaceWindowPlacement: NSObject {
+    private static let key = "workspaceWindowFrame"
+    private weak var window: NSWindow?
+    private var restored = false
+    private var enteringFullScreen = false
+
+    init(_ window: NSWindow) {
+        self.window = window
+        super.init()
+        let notifications = NotificationCenter.default
+        notifications.addObserver(self, selector: #selector(restore(_:)), name: NSWindow.didBecomeKeyNotification, object: window)
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
+            notifications.addObserver(self, selector: #selector(remember(_:)), name: name, object: window)
+        }
+        notifications.addObserver(self, selector: #selector(enterFullScreen(_:)), name: NSWindow.willEnterFullScreenNotification, object: window)
+        notifications.addObserver(self, selector: #selector(exitFullScreen(_:)), name: NSWindow.didExitFullScreenNotification, object: window)
+        if window.isKeyWindow { restore(nil) }
+    }
+
+    @objc private func restore(_ notification: Notification?) {
+        guard !restored, let window else { return }
+        if let frame = BrowserPreferences.defaults.string(forKey: Self.key), !window.styleMask.contains(.fullScreen) {
+            window.setFrame(from: frame)
+        }
+        restored = true
+    }
+
+    @objc private func remember(_ notification: Notification) {
+        guard restored, let window, window.isKeyWindow, !window.inLiveResize, !window.isMiniaturized,
+              !enteringFullScreen, !window.styleMask.contains(.fullScreen), window.screen != nil else { return }
+        BrowserPreferences.defaults.set(window.frameDescriptor, forKey: Self.key)
+    }
+
+    @objc private func enterFullScreen(_ notification: Notification) { enteringFullScreen = true }
+    @objc private func exitFullScreen(_ notification: Notification) { enteringFullScreen = false }
 }

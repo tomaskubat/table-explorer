@@ -7,17 +7,17 @@ final class WorkspaceInteractionTests: XCTestCase {
         try inCatalog { _, window in try run(window) }
     }
 
-    @MainActor private func inCatalog(_ run: (XCUIApplication, XCUIElement) throws -> Void) throws {
+    @MainActor private func inCatalog(profileNames: [String] = ["QA"], _ run: (XCUIApplication, XCUIElement) throws -> Void) throws {
         let app = XCUIApplication(), fm = FileManager.default
         let p = fm.temporaryDirectory.appending(path: UUID().uuidString)
         try fm.createDirectory(at: p, withIntermediateDirectories: true)
         defer { app.terminate(); try? fm.removeItem(at: p) }
         let db = p.appending(path: "qa.sqlite")
         try SQLiteFixture.create(at: db)
-        let profile: [String: Any] = ["id": UUID().uuidString, "name": "QA", "driver": "SQLite",
+        let profiles: [[String: Any]] = profileNames.map { name in ["id": UUID().uuidString, "name": name, "driver": "SQLite",
             "filePath": db.path, "host": "", "port": "", "user": "", "database": "", "environment": "local",
-            "socketPath": "", "usesSocket": false, "verifyTLS": false, "caPath": "", "rememberPassword": false]
-        try JSONSerialization.data(withJSONObject: [["id": UUID().uuidString, "name": "Fixtures", "connections": [profile]]])
+            "socketPath": "", "usesSocket": false, "verifyTLS": false, "caPath": "", "rememberPassword": false] }
+        try JSONSerialization.data(withJSONObject: [["id": UUID().uuidString, "name": "Fixtures", "connections": profiles]])
             .write(to: p.appending(path: "connections.json"))
         app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = p.path
         app.launch()
@@ -118,6 +118,50 @@ final class WorkspaceInteractionTests: XCTestCase {
             app.windows["Saved Connections"].staticTexts["QA"].doubleClick()
             XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
             XCTAssertTrue(window.buttons["workspace-tab-mesto"].exists)
+        }
+    }
+
+    @MainActor func testWorkspaceFrameIsSharedAcrossConnectionsAndRelaunch() throws {
+        continueAfterFailure = false
+        try inCatalog(profileNames: ["QA", "Second"]) { app, window in
+            let chooser = app.windows["Saved Connections"], chooserFrame = chooser.frame
+            let original = window.frame
+            let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+                .withOffset(CGVector(dx: -3, dy: -3))
+            corner.click(forDuration: 0.15, thenDragTo: corner.withOffset(CGVector(dx: -125, dy: -70)))
+            let title = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 14 / window.frame.height))
+            title.click(forDuration: 0.15, thenDragTo: title.withOffset(CGVector(dx: 62, dy: 35)))
+            let expected = window.frame
+            XCTAssertLessThan(expected.width, original.width - 20)
+            XCTAssertLessThan(expected.height, original.height - 20)
+            XCTAssertGreaterThan(expected.minX, original.minX + 15)
+            XCTAssertGreaterThan(expected.minY, original.minY + 10)
+            func assertFrame(_ actual: CGRect, equals target: CGRect) {
+                XCTAssertEqual(actual.width, target.width, accuracy: 2)
+                XCTAssertEqual(actual.height, target.height, accuracy: 2)
+                XCTAssertEqual(actual.minX, target.minX, accuracy: 2)
+                XCTAssertEqual(actual.minY, target.minY, accuracy: 2)
+            }
+            window.buttons[XCUIIdentifierCloseWindow].click()
+            XCTAssertTrue(window.waitForNonExistence(timeout: 4))
+            assertFrame(chooser.frame, equals: chooserFrame)
+            chooser.staticTexts["QA"].doubleClick()
+            XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
+            assertFrame(window.frame, equals: expected)
+
+            // Resizing alone must persist even when the app quits with this window still open.
+            let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                .withOffset(CGVector(dx: 2, dy: 0))
+            edge.click(forDuration: 0.15, thenDragTo: edge.withOffset(CGVector(dx: -45, dy: 0)))
+            let beforeQuit = window.frame
+            XCTAssertGreaterThan(beforeQuit.width, expected.width + 20)
+            app.typeKey("q", modifierFlags: .command)
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 6))
+            app.launch()
+            chooser.staticTexts["Second"].doubleClick()
+            let second = app.windows["Second — qa.sqlite"]
+            XCTAssertTrue(second.staticTexts["mesto"].waitForExistence(timeout: 5))
+            assertFrame(second.frame, equals: beforeQuit)
         }
     }
 
