@@ -17,6 +17,7 @@ struct WorkspaceCommands: Commands {
             Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
         }
         CommandGroup(after: .importExport) {
+            Button("Import CSV…") { workspace?.csvImportShown = true }.disabled(workspace?.connected != true || workspace?.hasRunningTasks != false || workspace?.database.isEmpty != false)
             Button("Backup Database…") { workspace?.maintenance = .backup }.disabled(workspace?.connected != true || workspace?.hasRunningTasks != false)
             Button("Restore Database…") { workspace?.maintenance = .restore }.disabled(workspace?.connected != true || workspace?.hasRunningTasks != false)
         }

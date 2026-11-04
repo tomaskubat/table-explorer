@@ -12,6 +12,8 @@ struct CSVSettings: Hashable, Sendable {
     var nullToken = BrowserPreferences.defaults.string(forKey: "csvNull") ?? "\\N"
     var encoding = "UTF-8"
     var lineEnding = "LF"
+    var quoteAll = false
+    var decimalComma = false
 
     var stringEncoding: String.Encoding {
         switch encoding { case "UTF-16": .utf16; case "Latin-1": .isoLatin1; default: .utf8 }
@@ -26,7 +28,7 @@ struct CSVSettings: Hashable, Sendable {
         }
     }
     func encode(_ field: String, forceQuote: Bool = false) -> String {
-        if forceQuote || field.contains(delimiter) || field.contains(quote) || field.contains("\r") || field.contains("\n") {
+        if quoteAll || forceQuote || field.contains(delimiter) || field.contains(quote) || field.contains("\r") || field.contains("\n") {
             return quote + field.replacingOccurrences(of: quote, with: quote + quote) + quote
         }
         return field
@@ -108,34 +110,112 @@ struct CSVDocument: Sendable {
     }
 }
 
+struct CSVImportColumn: Identifiable, Sendable {
+    enum Storage: String, CaseIterable, Sendable {
+        case text = "Text", integer = "Integer", decimal = "Real", blob = "Blob"
+
+        func sql(_ driver: DatabaseDriver) -> String {
+            switch self {
+            case .text: return "TEXT"
+            case .integer: return driver == .mariaDB ? "BIGINT" : "INTEGER"
+            case .decimal: return driver == .mariaDB ? "DOUBLE" : "REAL"
+            case .blob: return "BLOB"
+            }
+        }
+    }
+    let id = UUID()
+    var name: String
+    var storage = Storage.text
+    var include = true
+
+    func convert(_ value: SQLValue) throws -> SQLValue {
+        guard case let .text(raw) = value else { return value }
+        switch storage {
+        case .text: return value
+        case .integer:
+            if let number = Int64(raw) { return .integer(String(number)) }
+        case .decimal:
+            if let number = Double(raw), number.isFinite { return .number(String(number)) }
+        case .blob:
+            if let bytes = Data(base64Encoded: raw) { return .blob(bytes) }
+        }
+        throw BrowserError("Column " + name + " expects " + (storage == .blob ? "Base64-encoded bytes" : storage.rawValue.lowercased()) + ".")
+    }
+
+    static func createTable(_ name: String, columns: [Self], driver: DatabaseDriver) throws -> String {
+        let chosen = columns.filter(\.include)
+        let names = chosen.map(\.name)
+        guard ([name] + names).allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.contains("\0") }),
+              !chosen.isEmpty, Set(names.map { $0.lowercased() }).count == names.count else {
+            throw BrowserError("Enter a table name and a distinct name for each included column.")
+        }
+        let fields = chosen.map { DatabaseSession.identifier($0.name) + " " + $0.storage.sql(driver) }
+        return "CREATE TABLE " + DatabaseSession.identifier(name) + " (" + fields.joined(separator: ", ") + ")" + (driver == .mariaDB ? " ENGINE=InnoDB" : "")
+    }
+}
+
 extension DatabaseSession {
-    func importCSV(_ document: CSVDocument, mapping: [String?], object: DatabaseObject, driver: DatabaseDriver) throws -> Int {
-        let schema = try schema(of: object, driver: driver)
+    func importCSV(_ document: CSVDocument, mapping: [String?], object: DatabaseObject, driver: DatabaseDriver,
+                   newColumns: [CSVImportColumn]? = nil) throws -> Int {
+        guard !hasOpenTransaction else { throw BrowserError("Finish the current transaction before importing.") }
         let fields = mapping.compactMap { $0 }
-        guard object.kind == .table, schema.transactional, !fields.isEmpty, Set(fields).count == fields.count,
-              fields.allSatisfy({ name in schema.columns.contains { $0.name == name && !$0.generated } }) else {
+        guard object.kind == .table, !fields.isEmpty, Set(fields).count == fields.count else {
             throw BrowserError("Map each source field to a distinct writable column, or choose Skip.")
         }
-        guard !hasOpenTransaction else { throw BrowserError("Finish the current transaction before importing.") }
-        let sql = "INSERT INTO " + Self.identifier(object.name) + " (" + fields.map(Self.identifier).joined(separator: ", ") + ") VALUES (" + fields.map { _ in "?" }.joined(separator: ", ") + ")"
-        var inserted = 0, skipHeader = document.settings.header
-        _ = try query(driver == .mariaDB ? "START TRANSACTION" : "BEGIN IMMEDIATE")
+        // MariaDB commits CREATE TABLE implicitly. Publish the complete staging
+        // table only after every row commits. RENAME refuses an existing target.
+        let stage = newColumns != nil && driver == .mariaDB ? "_csv_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") : nil
+        let destination = Self.identifier(stage ?? object.name)
+        let ddl: String?
+        if let newColumns {
+            _ = try CSVImportColumn.createTable(object.name, columns: newColumns, driver: driver)
+            ddl = try CSVImportColumn.createTable(stage ?? object.name, columns: newColumns, driver: driver)
+        } else {
+            let schema = try schema(of: object, driver: driver)
+            guard schema.transactional, fields.allSatisfy({ name in schema.columns.contains { $0.name == name && !$0.generated } }) else {
+                throw BrowserError("Select a transactional table and map only its writable columns.")
+            }
+            ddl = nil
+        }
+        let sql = "INSERT INTO " + destination + " (" + fields.map(Self.identifier).joined(separator: ", ") + ") VALUES (" + fields.map { _ in "?" }.joined(separator: ", ") + ")"
+        var inserted = 0, skipHeader = document.settings.header, transaction = false, createdStage = false
         do {
+            if let ddl, stage != nil { _ = try query(ddl); createdStage = true }
+            _ = try query(driver == .mariaDB ? "START TRANSACTION" : "BEGIN IMMEDIATE")
+            transaction = true
+            if let ddl, stage == nil { _ = try query(ddl) }
             try document.read { line, source in
                 try Task.checkCancellation()
                 if skipHeader { skipHeader = false; return true }
                 guard source.count == mapping.count else { throw BrowserError("Line \(line): expected \(mapping.count) fields, found \(source.count).") }
-                let values = zip(source, mapping).compactMap { field, target in target == nil ? nil : document.value(field) }
-                do { _ = try query(sql, parameters: values) }
+                do {
+                    let values = try source.indices.compactMap { index -> SQLValue? in
+                        guard mapping[index] != nil else { return nil }
+                        let value = document.value(source[index])
+                        return try newColumns?[index].convert(value) ?? value
+                    }
+                    _ = try query(sql, parameters: values)
+                }
                 catch { throw BrowserError("Line \(line), columns \(fields.joined(separator: ", ")): \(error.localizedDescription)") }
                 inserted += 1; return true
             }
-            _ = try query("COMMIT")
+            try Task.checkCancellation()
+            _ = try query("COMMIT"); transaction = false
+            if stage != nil {
+                try Task.checkCancellation()
+                _ = try query("RENAME TABLE " + destination + " TO " + Self.identifier(object.name))
+            }
             return inserted
         } catch {
-            do { _ = try query("ROLLBACK") }
-            catch { throw BrowserError("Import failed and the transaction outcome could not be verified. Reconnect and inspect the target table.") }
-            throw BrowserError("No rows were imported. \(error.localizedDescription)")
+            let cause = error.localizedDescription
+            do {
+                if transaction { _ = try query("ROLLBACK") }
+                if createdStage { _ = try query("DROP TABLE " + destination) }
+            } catch {
+                let detail = stage.map { " Check the staging table " + $0 + "." } ?? ""
+                throw BrowserError(cause + "\nCould not verify the transaction or clean up the import. Reconnect and inspect the target." + detail)
+            }
+            throw BrowserError("No rows were imported. " + cause)
         }
     }
 }

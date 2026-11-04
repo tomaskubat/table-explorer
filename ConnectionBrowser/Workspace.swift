@@ -168,10 +168,12 @@ final class Workspace: Identifiable {
     var operation: ObjectOperationTarget?
     var maintenance: MaintenanceAction?
     var maintenanceBusy = false
+    var csvImportShown = false
+    var transferBusy = false
     var objectSearchShown = false
     var databaseSelectorShown = false
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
-    var hasRunningTasks: Bool { maintenanceBusy || tabs.contains { $0.busy } }
+    var hasRunningTasks: Bool { maintenanceBusy || transferBusy || tabs.contains { $0.busy } }
 
     init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword

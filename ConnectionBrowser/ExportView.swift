@@ -12,6 +12,7 @@ struct ExportView: View {
     @State private var includeDDL = false
     @State private var includeData = true
     @State private var includeDrop = false
+    @State private var gzip = false
     @State private var overwrite = false
     @State private var busy = false
     @State private var job: Task<Void, Never>?
@@ -57,13 +58,14 @@ struct ExportView: View {
                         Toggle("Schema", isOn: $includeDDL).disabled(tab.object == nil)
                         Toggle("Data", isOn: $includeData)
                         Toggle("DROP statement", isOn: $includeDrop)
+                        Toggle("Compress with gzip", isOn: $gzip)
                     }
                 }
                 HStack {
                     TextField("Destination File", text: $file).accessibilityIdentifier("Destination File")
                     Button("Choose…") {
                         let panel = NSSavePanel()
-                        panel.nameFieldStringValue = tableName + "." + format.rawValue.lowercased()
+                        panel.nameFieldStringValue = tableName + "." + format.rawValue.lowercased() + (format == .sql && gzip ? ".gz" : "")
                         if panel.runModal() == .OK, let url = panel.url { file = url.path }
                     }
                 }
@@ -100,10 +102,10 @@ struct ExportView: View {
         let request = ExportRequest(destination: URL(filePath: file), overwrite: overwrite, driver: workspace.profile.driver,
                                     format: format, scope: scope, csv: csv, object: tab.object, columns: columns,
                                     rows: rows, read: read, includeDDL: includeDDL, includeData: includeData,
-                                    includeDrop: includeDrop, outputTable: tableName)
-        error = nil; busy = true
+                                    includeDrop: includeDrop, outputTable: tableName, gzip: format == .sql && gzip)
+        error = nil; busy = true; workspace.transferBusy = true
         job = Task {
-            defer { busy = false; job = nil }
+            defer { busy = false; job = nil; workspace.transferBusy = false }
             do {
                 let count = try await workspace.session.export(request)
                 workspace.log.append("Exported \(count) rows as \(format.rawValue) to \(request.destination.lastPathComponent).")

@@ -103,6 +103,7 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
         .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
         .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
+        .sheet(isPresented: $workspace.csvImportShown) { ImportCSVView(workspace: workspace, tab: workspace.active) }
         .sheet(item: $workspace.maintenance) { action in MaintenanceView(workspace: workspace, action: action) }
         .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
         .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }

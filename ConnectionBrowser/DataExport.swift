@@ -1,4 +1,5 @@
 import Foundation
+import zlib
 
 enum ExportFormat: String, CaseIterable, Sendable { case csv = "CSV", json = "JSON", sql = "SQL" }
 enum ExportScope: String, CaseIterable, Sendable { case result = "Current Result", selected = "Selected Rows", filtered = "Filtered Rows", table = "Entire Table" }
@@ -18,6 +19,7 @@ struct ExportRequest: Sendable {
     let includeData: Bool
     let includeDrop: Bool
     let outputTable: String
+    var gzip = false
 }
 
 extension DatabaseSession {
@@ -37,10 +39,35 @@ extension DatabaseSession {
         defer { try? manager.removeItem(at: temporary) }
         let output = try FileHandle(forWritingTo: temporary)
         defer { try? output.close() }
+        var compressed: gzFile?
+        if request.gzip {
+            let descriptor = dup(output.fileDescriptor)
+            guard descriptor >= 0 else { throw BrowserError("Could not open the gzip output stream.") }
+            compressed = gzdopen(descriptor, "wb")
+            guard compressed != nil else { Darwin.close(descriptor); throw BrowserError("Could not create the gzip encoder.") }
+        }
+        defer { if let compressed { gzclose(compressed) } }
         var buffer = Data()
+        func flush() throws {
+            guard !buffer.isEmpty else { return }
+            try Task.checkCancellation()
+            if let compressed {
+                try buffer.withUnsafeBytes { bytes in
+                    var offset = 0
+                    while offset < bytes.count {
+                        let count = min(bytes.count - offset, 65536)
+                        guard gzwrite(compressed, bytes.baseAddress! + offset, UInt32(count)) == Int32(count) else {
+                            throw BrowserError("Could not write compressed SQL to the destination.")
+                        }
+                        offset += count
+                    }
+                }
+            } else { try output.write(contentsOf: buffer) }
+            buffer.removeAll(keepingCapacity: true)
+        }
         func write(_ string: String) throws {
             buffer.append(contentsOf: string.utf8)
-            if buffer.count >= 64 * 1024 { try output.write(contentsOf: buffer); buffer.removeAll(keepingCapacity: true) }
+            if buffer.count >= 64 * 1024 { try flush() }
         }
         let newline = request.csv.lineEnding == "CRLF" ? "\r\n" : "\n"
         var written = 0
@@ -65,7 +92,13 @@ extension DatabaseSession {
             case .csv:
                 let fields = values.map { value in
                     if value == .null { return request.csv.nullToken }
-                    return request.csv.encode(value.display, forceQuote: value.display == request.csv.nullToken)
+                    let text: String
+                    switch value {
+                    case let .number(number): text = request.csv.decimalComma ? number.replacingOccurrences(of: ".", with: ",") : number
+                    case let .blob(bytes): text = bytes.base64EncodedString()
+                    default: text = value.display
+                    }
+                    return request.csv.encode(text, forceQuote: text == request.csv.nullToken)
                 }
                 try write(fields.joined(separator: request.csv.delimiter) + newline)
             case .json:
@@ -92,7 +125,17 @@ extension DatabaseSession {
             }
         }
         if request.format == .json { try write("\n]\n") }
-        if !buffer.isEmpty { try output.write(contentsOf: buffer) }
+        if request.format == .sql && request.driver == .sqlite && request.includeDDL, let object = request.object {
+            let extras = try query("SELECT sql FROM sqlite_schema WHERE tbl_name=? AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name",
+                                   parameters: [.text(object.name)], limit: .max)
+            for row in extras.rows { try write(row[0].display + ";\n") }
+        }
+        try flush()
+        if let stream = compressed {
+            compressed = nil
+            guard gzclose(stream) == Z_OK else { throw BrowserError("Could not finish the gzip file.") }
+        }
+        try Task.checkCancellation()
         try output.synchronize()
         try output.close()
         if request.overwrite && manager.fileExists(atPath: destination.path) {
