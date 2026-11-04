@@ -3,7 +3,7 @@ import Foundation
 import SQLite3
 
 extension MariaHandle {
-    func preparedQuery(_ sql: String, parameters: [SQLValue], limit: Int) throws -> QueryResult {
+    func preparedQuery(_ sql: String, parameters: [SQLValue], limit: Int, visit: (([SQLValue]) throws -> Void)? = nil) throws -> QueryResult {
         guard let statement = mysql_stmt_init(connection) else { throw failure() }
         defer { mysql_stmt_close(statement) }
         func statementError() -> BrowserError { BrowserError.maria(mysql_stmt_errno(statement), String(cString: mysql_stmt_error(statement))) }
@@ -71,7 +71,7 @@ extension MariaHandle {
                 }
                 row.append(Self.value(bytes, field: fields[i]))
             }
-            result.rows.append(row)
+            if let visit { try visit(row) } else { result.rows.append(row) }
         }
         return result
     }

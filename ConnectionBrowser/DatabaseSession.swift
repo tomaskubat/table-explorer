@@ -75,7 +75,7 @@ final class MariaHandle {
         BrowserError.maria(mysql_errno(connection), String(cString: mysql_error(connection)))
     }
 
-    func query(_ sql: String, limit: Int) throws -> QueryResult {
+    func query(_ sql: String, limit: Int, visit: (([SQLValue]) throws -> Void)? = nil) throws -> QueryResult {
         guard mysql_real_query(connection, sql, UInt(sql.utf8.count)) == 0 else { throw failure() }
         var result = QueryResult()
         var more: Int32
@@ -94,7 +94,7 @@ final class MariaHandle {
                         let field = fields[i]
                         return Self.value(data, field: field)
                     }
-                    result.rows.append(values)
+                    if let visit { try visit(values) } else { result.rows.append(values) }
                 }
                 if mysql_errno(connection) != 0 { throw failure() }
             } else if mysql_field_count(connection) != 0 {
@@ -126,7 +126,7 @@ final class SQLiteHandle {
     }
     deinit { sqlite3_close(database) }
 
-    func query(_ sql: String, parameters: [SQLValue] = [], limit: Int) throws -> QueryResult {
+    func query(_ sql: String, parameters: [SQLValue] = [], limit: Int, visit: (([SQLValue]) throws -> Void)? = nil) throws -> QueryResult {
         try sql.withCString { start in
             var current: UnsafePointer<CChar>? = start
             var result = QueryResult()
@@ -146,7 +146,7 @@ final class SQLiteHandle {
                 var status = sqlite3_step(statement)
                 while status == SQLITE_ROW {
                     if result.rows.count < limit {
-                        result.rows.append((0..<count).map { i in
+                        let values: [SQLValue] = (0..<count).map { i in
                             switch sqlite3_column_type(statement, i) {
                             case SQLITE_NULL: return .null
                             case SQLITE_INTEGER: return .integer(String(sqlite3_column_int64(statement, i)))
@@ -158,7 +158,8 @@ final class SQLiteHandle {
                                 let bytes = sqlite3_column_text(statement, i)!
                                 return .text(String(decoding: UnsafeBufferPointer(start: bytes, count: Int(sqlite3_column_bytes(statement, i))), as: UTF8.self))
                             }
-                        })
+                        }
+                        if let visit { try visit(values) } else { result.rows.append(values) }
                     } else { result.truncated = true }
                     status = sqlite3_step(statement)
                 }
@@ -192,6 +193,15 @@ actor DatabaseSession {
         } catch { close(); throw error }
     }
 
+    func checkExportDestination(_ destination: URL) throws {
+        guard let sqlite, let path = sqlite3_db_filename(sqlite.database, "main") else { return }
+        let source = URL(filePath: String(cString: path)).resolvingSymlinksInPath().standardizedFileURL.path
+        let target = destination.resolvingSymlinksInPath().standardizedFileURL.path
+        guard ![source, source + "-wal", source + "-shm", source + "-journal"].contains(target) else {
+            throw BrowserError("Choose an export file outside the active database and its journal files.")
+        }
+    }
+
     var hasOpenTransaction: Bool {
         if let sqlite { return sqlite3_get_autocommit(sqlite.database) == 0 }
         if let maria { return maria.connection.pointee.server_status & UInt32(SERVER_STATUS_IN_TRANS) != 0 }
@@ -201,16 +211,20 @@ actor DatabaseSession {
     func close() { maria = nil; sqlite = nil }
 
     func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {
+        try read(sql, parameters: parameters, limit: limit, visit: nil)
+    }
+
+    func read(_ sql: String, parameters: [SQLValue], limit: Int, visit: (([SQLValue]) throws -> Void)?) throws -> QueryResult {
         if let maria {
             do {
-                if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit) }
-                return try maria.query(sql, limit: limit)
+                if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit, visit: visit) }
+                return try maria.query(sql, limit: limit, visit: visit)
             } catch let error as BrowserError {
                 if error.disconnected { self.maria = nil }
                 throw error
             }
         }
-        if let sqlite { return try sqlite.query(sql, parameters: parameters, limit: limit) }
+        if let sqlite { return try sqlite.query(sql, parameters: parameters, limit: limit, visit: visit) }
         throw BrowserError("This workspace is disconnected.", disconnected: true)
     }
 

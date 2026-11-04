@@ -117,6 +117,8 @@ struct WorkspaceView: View {
 }
 
 private struct WorkspaceTabView: View {
+    @State private var importShown = false
+    @State private var exportShown = false
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
     var body: some View {
@@ -149,6 +151,12 @@ private struct WorkspaceTabView: View {
                 if tab.object != nil { RowActions(workspace: workspace, tab: tab) }
             }
             HStack {
+                if tab.object?.kind == .table {
+                    Button("Import CSV") { importShown = true }
+                        .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
+                }
+                Button("Export Data") { exportShown = true }
+                    .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
                 if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
                 else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption) }
                 Spacer()
@@ -164,6 +172,8 @@ private struct WorkspaceTabView: View {
                 }
             }
         }.padding(8)
+        .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
+        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab) }
         .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }
     }
 }

@@ -16,13 +16,15 @@ struct TablePage: Sendable {
     let sql: String
 }
 
-extension DatabaseSession {
-    func page(of object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool,
-              offset: Int, limit: Int) throws -> TablePage {
-        let table = Self.identifier(object.name)
+struct TableRead: Sendable {
+    let from: String
+    let order: String
+    let parameters: [SQLValue]
+    init(object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool) {
+        let table = DatabaseSession.identifier(object.name)
         var parameters: [SQLValue] = []
         let clauses = filters.filter(\.enabled).compactMap { filter -> String? in
-            let column = Self.identifier(filter.column)
+            let column = DatabaseSession.identifier(filter.column)
             switch filter.operation {
             case .isNull: return "\(column) IS NULL"
             case .equals: parameters.append(.text(filter.value)); return "\(column) = ?"
@@ -35,12 +37,21 @@ extension DatabaseSession {
             }
         }
         let predicate = clauses.isEmpty ? "" : " WHERE " + clauses.joined(separator: " AND ")
-        let countResult = try query("SELECT COUNT(*) FROM \(table)\(predicate)", parameters: parameters)
+        self.from = " FROM " + table + predicate
+        self.order = sortColumn.map { " ORDER BY " + DatabaseSession.identifier($0) + (descending ? " DESC" : " ASC") } ?? ""
+        self.parameters = parameters
+    }
+}
+
+extension DatabaseSession {
+    func page(of object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool,
+              offset: Int, limit: Int) throws -> TablePage {
+        let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending)
+        let countResult = try query("SELECT COUNT(*)" + read.from, parameters: read.parameters)
         guard let cell = countResult.rows.first?.first, let count = Int(cell.display) else { throw BrowserError("Could not read the filtered row count.") }
         let size = min(max(1, limit), 10000)
         let start = min(max(offset, 0), (max(count - 1, 0) / size) * size)
-        let order = sortColumn.map { " ORDER BY " + Self.identifier($0) + (descending ? " DESC" : " ASC") } ?? ""
-        let sql = "SELECT * FROM \(table)\(predicate)\(order) LIMIT \(size) OFFSET \(start)"
-        return try TablePage(result: query(sql, parameters: parameters, limit: size), count: count, offset: start, sql: sql)
+        let sql = "SELECT *" + read.from + read.order + " LIMIT \(size) OFFSET \(start)"
+        return try TablePage(result: query(sql, parameters: read.parameters, limit: size), count: count, offset: start, sql: sql)
     }
 }
