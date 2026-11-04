@@ -75,11 +75,12 @@ struct ProfileEditor: View {
                 }.pickerStyle(.segmented)
             }
             ScrollView {
-                Form {
+                VStack(alignment: .leading, spacing: 5) {
                     if sshPage, let ssh = Binding($profile.ssh) { sshFields(ssh) }
                     else { databaseFields }
-                }.padding(.horizontal, 2)
+                }.padding(.horizontal, 2).frame(maxWidth: .infinity, alignment: .leading)
             }.frame(minHeight: profile.driver == .sqlite ? 180 : (sshPage ? 245 : 332), maxHeight: profile.driver == .sqlite ? 205 : 355).disabled(busy)
+            if !sshPage { Toggle("Remember open tabs and workspace state", isOn: $profile.remembersWorkspace) }
             if let error {
                 Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("connectionError")
             } else if succeeded { Text("Connection succeeded").foregroundStyle(.green) }
@@ -122,34 +123,42 @@ struct ProfileEditor: View {
             }
         }
     }
+    // Each row takes its width from the sheet, never from a field's contents.
+    private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(title).frame(width: 125, alignment: .trailing)
+            content().labelsHidden().frame(minWidth: 0, maxWidth: .infinity)
+        }
+    }
     private func sshFields(_ ssh: Binding<SSHSettings>) -> some View {
-        Section("SSH tunnel") {
-            TextField("SSH Host", text: ssh.host, prompt: Text("Hostname or ~/.ssh/config alias")).accessibilityIdentifier("SSH Host")
-            TextField("SSH Port", text: ssh.port, prompt: Text("From SSH config")).accessibilityIdentifier("SSH Port")
-            TextField("SSH User", text: ssh.user, prompt: Text("From SSH config")).accessibilityIdentifier("SSH User")
-            HStack {
-                TextField("Private Key File", text: ssh.identityFile).accessibilityIdentifier("Private Key File")
-                Toggle("Key only", isOn: Binding(get: { ssh.wrappedValue.keyOnly == true }, set: { ssh.wrappedValue.keyOnly = $0 }))
-            }
-            SecureField("SSH Password or Key Passphrase", text: $sshPassword).accessibilityIdentifier("SSH Password")
+        Group {
+            row("SSH Host") { TextField("SSH Host", text: ssh.host, prompt: Text("Hostname or ~/.ssh/config alias")).accessibilityIdentifier("SSH Host") }
+            row("SSH Port") { TextField("SSH Port", text: ssh.port, prompt: Text("From SSH config")).accessibilityIdentifier("SSH Port") }
+            row("SSH User") { TextField("SSH User", text: ssh.user, prompt: Text("From SSH config")).accessibilityIdentifier("SSH User") }
+            row("Private Key File") { TextField("Private Key File", text: ssh.identityFile).accessibilityIdentifier("Private Key File") }
+            Toggle("Use SSH key only", isOn: Binding(get: { ssh.wrappedValue.keyOnly == true }, set: { ssh.wrappedValue.keyOnly = $0 }))
+            row("SSH password or passphrase") { SecureField("SSH Password or Key Passphrase", text: $sshPassword).accessibilityIdentifier("SSH Password") }
             Toggle("Remember SSH secret in Keychain", isOn: ssh.rememberSecret)
-            TextField("Known Hosts File", text: ssh.knownHostsFile).accessibilityIdentifier("Known Hosts File")
+            row("Known Hosts File") { TextField("Known Hosts File", text: ssh.knownHostsFile).accessibilityIdentifier("Known Hosts File") }
             if profile.verifyTLS {
-                TextField("Database Certificate SHA-256", text: ssh.databaseFingerprint).accessibilityIdentifier("Database Fingerprint")
+                row("Database certificate SHA-256") { TextField("Database Certificate SHA-256", text: ssh.databaseFingerprint).accessibilityIdentifier("Database Fingerprint") }
             }
         }
     }
 
     @ViewBuilder private var databaseFields: some View {
-        TextField("Connection Name", text: $profile.name).accessibilityIdentifier("Connection Name")
-        Picker("Group", selection: $groupID) {
-            ForEach(library.groups) { Text($0.name).tag($0.id) }
+        row("Connection Name") { TextField("Connection Name", text: $profile.name).accessibilityIdentifier("Connection Name") }
+        row("Group") {
+            Picker("Group", selection: $groupID) { ForEach(library.groups) { Text($0.name).tag($0.id) } }
         }
-        HStack {
-            TextField("Environment", text: $profile.environment).accessibilityIdentifier("Environment")
-            Picker("Color Tag", selection: Binding(get: { profile.tagColor ?? "Teal" }, set: { profile.tagColor = $0 })) {
-                if let custom = profile.tagColor, custom.hasPrefix("#") { Text(custom).tag(custom) }
-                ForEach(["Teal", "Blue", "Purple", "Orange", "Red", "Green"], id: \.self) { Text($0) }
+        row("Environment") {
+            HStack {
+                TextField("Environment", text: $profile.environment).accessibilityIdentifier("Environment")
+                Text("Color")
+                Picker("Color Tag", selection: Binding(get: { profile.tagColor ?? "Teal" }, set: { profile.tagColor = $0 })) {
+                    if let custom = profile.tagColor, custom.hasPrefix("#") { Text(custom).tag(custom) }
+                    ForEach(["Teal", "Blue", "Purple", "Orange", "Red", "Green"], id: \.self) { Text($0) }
+                }.fixedSize()
             }
         }
         Divider()
@@ -158,35 +167,36 @@ struct ProfileEditor: View {
                 profile.ssh = enabled ? SSHSettings() : nil; sshPage = enabled
             }))
             Toggle("Use Unix socket", isOn: $profile.usesSocket)
-            if profile.usesSocket { TextField("Socket Path", text: $profile.socketPath).accessibilityIdentifier("Socket Path") }
+            if profile.usesSocket { row("Socket Path") { TextField("Socket Path", text: $profile.socketPath).accessibilityIdentifier("Socket Path") } }
             else {
-                LabeledContent("Host") {
+                row("Host") {
                     HStack {
-                        TextField("Host", text: $profile.host).labelsHidden().accessibilityIdentifier("Host")
+                        TextField("Host", text: $profile.host).accessibilityIdentifier("Host")
                         Text("Port")
-                        TextField("Port", text: $profile.port).labelsHidden().frame(width: 70).accessibilityIdentifier("Port")
+                        TextField("Port", text: $profile.port).frame(width: 70).accessibilityIdentifier("Port")
                     }
                 }
             }
-            TextField("User", text: $profile.user).accessibilityIdentifier("User")
-            SecureField("Password", text: $password).accessibilityIdentifier("Password")
+            row("User") { TextField("User", text: $profile.user).accessibilityIdentifier("User") }
+            row("Password") { SecureField("Password", text: $password).accessibilityIdentifier("Password") }
             Toggle("Remember password in Keychain", isOn: $profile.rememberPassword)
-            TextField("Database", text: $profile.database).accessibilityIdentifier("Database")
+            row("Database") { TextField("Database", text: $profile.database).accessibilityIdentifier("Database") }
             HStack {
                 Toggle("Require verified TLS", isOn: $profile.verifyTLS)
                 if !profile.verifyTLS {
                     Toggle("Prefer TLS when available", isOn: Binding(get: { profile.usesPreferredTLS }, set: { profile.preferTLS = $0 }))
                 }
             }
-            if profile.verifyTLS && profile.ssh == nil { TextField("CA Certificate Path", text: $profile.caPath).accessibilityIdentifier("CA Certificate Path") }
-
+            if profile.verifyTLS && profile.ssh == nil { row("CA Certificate Path") { TextField("CA Certificate Path", text: $profile.caPath).accessibilityIdentifier("CA Certificate Path") } }
         } else {
-            HStack {
-                TextField("Database File", text: $profile.filePath).accessibilityIdentifier("Database File")
-                Button("Choose…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = false
-                    if panel.runModal() == .OK { profile.filePath = panel.url?.path ?? profile.filePath }
+            row("Database File") {
+                HStack {
+                    TextField("Database File", text: $profile.filePath).accessibilityIdentifier("Database File")
+                    Button("Choose…") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = false
+                        if panel.runModal() == .OK { profile.filePath = panel.url?.path ?? profile.filePath }
+                    }
                 }
             }
             Button("Create SQLite File…") {

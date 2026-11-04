@@ -2,6 +2,48 @@ import XCTest
 
 final class LibraryManagementTests: XCTestCase {
     @MainActor
+    func testLongImportedPasswordsStayInsideConnectionSheet() throws {
+        continueAfterFailure = false
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = XCUIApplication()
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
+        app.launch()
+        func frames(_ password: String) -> [CGRect] {
+            app.buttons["New Connection"].click()
+            app.buttons["Import from URL"].click()
+            let sheet = app.sheets.firstMatch
+            let address = app.textFields["Connection URL"]
+            address.replaceText(with: "mariadb+ssh://jump:" + password + "@bastion/reader:" + password + "@db/catalog?tLSMode=0&usePrivateKey=true&enviroment=production&name=reader%40qa")
+            let initial = address.frame
+            app.buttons["Import"].click()
+            let db = app.secureTextFields["Password"]
+            XCTAssertTrue(db.waitForExistence(timeout: 5))
+            db.click()
+            let dbFields = [db, app.textFields["Connection Name"], app.textFields["Host"], app.textFields["Port"], app.textFields["User"], app.buttons["Save"]]
+            func frame(_ field: XCUIElement) -> CGRect {
+                let rect = CGRect(x: field.frame.minX - sheet.frame.minX, y: 0, width: field.frame.width, height: field.frame.height)
+                XCTAssertGreaterThanOrEqual(rect.minX, 10, "Field lies outside the sheet margin")
+                XCTAssertLessThanOrEqual(rect.maxX, sheet.frame.width - 10, "Field lies outside the sheet margin")
+                return rect
+            }
+            let database = dbFields.map(frame)
+            app.radioButtons["SSH Tunnel"].click()
+            let ssh = app.secureTextFields["SSH Password"]
+            ssh.click()
+            let result = [CGRect(origin: .zero, size: initial.size)] + database + [frame(ssh), frame(app.textFields["SSH Host"])]
+            XCTAssertTrue(app.buttons["Save"].isHittable)
+            app.buttons["Cancel"].click()
+            return result
+        }
+        let normal = frames("fixture"), long = frames(String(repeating: "fixture", count: 120))
+        for (a, b) in zip(normal, long) {
+            XCTAssertEqual(a.minX, b.minX, accuracy: 2, "Long credentials must not shift controls")
+            XCTAssertEqual(a.width, b.width, accuracy: 2, "Input width must not depend on the password")
+        }
+    }
+
+    @MainActor
     func testImportingAURLAndExplicitlyCreatingANewSQLiteFile() throws {
         continueAfterFailure = false
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

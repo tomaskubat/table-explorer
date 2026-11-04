@@ -10,6 +10,21 @@ local_marker='Publish from local Mac'
 key="$PWD/Configuration/sparkle-public-key.txt"
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 
+# Only the local publisher has a compact console. Child commands retain their
+# normal exit status and full output; CI continues to stream its own logs.
+stage() {
+    [[ $mode == local ]] || return 0
+    if [[ -n ${current_stage:-} ]]; then printf 'PASS\n' >&3; fi
+    current_stage=$1
+    printf '%s ... ' "$current_stage" >&3
+    printf '\n--- %s ---\n' "$current_stage"
+}
+finish_report() {
+    local code=$1
+    if (( code == 0 )); then printf 'PASS\n' >&3; else printf 'FAILED\n' >&3; fi
+    printf 'Log: %s\n' "$release_log" >&3
+}
+
 next_patch_version() {
     {
         git for-each-ref --format='%(refname)' refs/tags &&
@@ -45,8 +60,11 @@ print(state)
 }
 
 prepare() {
+    stage "Run tests"
     Scripts/check-sqlite.sh
+    stage "Build and package $tag"
     Scripts/package-release.sh "$tag"
+    stage "Sign update"
     Scripts/sign-release.sh "$tag"
 }
 
@@ -72,6 +90,7 @@ clean_main() {
 
 publish() {
     local state expected uploaded
+    stage "Upload and publish $tag"
     [[ $(gh api "repos/$repo/commits/$tag" --jq .sha) == "$(git rev-parse HEAD)" ]] || die "Remote $tag does not point to this commit."
     swift Scripts/verify-update.swift "$out" "$version" "$key"
     (cd "$out" && shasum -a 256 "$archive" appcast.xml) | cmp - "$out/SHA256SUMS.txt"
@@ -88,10 +107,16 @@ publish() {
     [[ $expected == "$uploaded" ]] || die "Draft assets do not match the signed build."
     [[ $(release_state) == draft ]] || die "Release state changed during the upload."
     gh release edit "$tag" --repo "$repo" --draft=false --latest
+    stage "Verify public update"
     verify_public
 }
 
 if [[ $mode == local ]]; then
+    mkdir -p .build/distribution/logs
+    release_log=$(mktemp "$PWD/.build/distribution/logs/release.XXXXXX")
+    exec 3>&1 >"$release_log" 2>&1
+    trap 'finish_report $?' EXIT
+    stage "Check repository and select version"
     clean_main
     case "$(git remote get-url --push origin)" in
         "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git"|"ssh://git@github.com/$repo.git") ;;
@@ -111,7 +136,7 @@ case "$mode" in
     check-version) release_state >/dev/null ;;
     publish-ci) publish ;;
     local)
-        echo "Releasing $tag (to retry this version, use make release VERSION=$version)."
+        stage "Check $tag on GitHub"
         release_state >/dev/null
         head=$(git rev-parse HEAD)
         git fetch --quiet --no-tags origin refs/heads/main
@@ -127,6 +152,7 @@ case "$mode" in
             [[ -z $remote_tag ]] || die "Tag $tag already exists on origin."
         fi
         prepare
+        stage "Create and push $tag"
         clean_main
         [[ $(git rev-parse HEAD) == "$head" ]] || die "HEAD changed during the build."
         if ! git show-ref --verify --quiet "refs/tags/$tag"; then git tag -a "$tag" "$head" -m "$local_marker"; fi

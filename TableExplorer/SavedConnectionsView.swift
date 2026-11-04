@@ -194,6 +194,7 @@ struct SavedConnectionsView: View {
                 for index in groups.indices { groups[index].connections.removeAll { $0.id == id } }
             }
             for profile in profiles {
+                try WorkspaceStateFile(directory: library.directory, profile: profile.id).clear()
                 if profile.rememberPassword { try ProfilePassword.write("", for: profile.id) }
                 if profile.ssh?.rememberSecret == true { try ProfilePassword.write("", for: profile.id, ssh: true) }
             }
@@ -211,7 +212,9 @@ struct SavedConnectionsView: View {
         }
     }
     private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String) {
-        let workspace = Workspace(profile: profile, session: session, database: database, password: password, sshPassword: sshPassword, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
+        let workspace = Workspace(profile: profile, session: session, database: database, password: password, sshPassword: sshPassword, notebook: workspaces.notebook(for: profile.id, directory: library.directory)) { [library] in
+            library.groups.lazy.flatMap(\.connections).first { $0.id == profile.id }?.remembersWorkspace == true
+        }
         workspaces.sessions[workspace.id] = workspace
         openWindow(value: workspace.id)
     }

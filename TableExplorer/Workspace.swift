@@ -23,6 +23,7 @@ final class WorkspaceTab: Identifiable {
     let id: UUID
     var title: String
     let object: DatabaseObject?
+    var needsTableLoad = false
     var sql = ""
     var fileURL: URL?
     var savedSQL = ""
@@ -187,6 +188,12 @@ final class Workspace: Identifiable {
     var database: String
     private let password: String
     private let sshPassword: String
+    private let initialDatabase: String
+    private let shouldRemember: () -> Bool
+    private var started = false
+    private var readyToSave = false
+    var consoleHeight: CGFloat = 135
+    var navigator = "Items"
     var objects: [DatabaseObject] = []
     var tabs: [WorkspaceTab] = []
     private var nextQueryNumber = 1
@@ -218,15 +225,57 @@ final class Workspace: Identifiable {
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
     var hasRunningTasks: Bool { maintenanceBusy || transferBusy || tabs.contains { $0.busy } }
 
-    init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook) {
+    init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook, shouldRemember: (() -> Bool)? = nil) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
+        self.shouldRemember = shouldRemember ?? { profile.remembersWorkspace }
+        self.initialDatabase = database
         self.profile = profile; self.session = session; self.database = database
-        let layout = notebook.panels
+        let layout = self.shouldRemember() ? notebook.panels : PanelLayout()
         showItems = layout.items; showDetails = layout.detail; showConsole = layout.console
     }
 
+    func start() async {
+        guard !started else { return }
+        started = true
+        let state = shouldRemember() ? try? notebook.workspaceState.read() : nil
+        if let state, state.initialDatabase == initialDatabase, profile.driver == .mariaDB, !state.database.isEmpty, state.database != database {
+            if (try? await session.selectDatabase(state.database)) != nil { database = state.database }
+        }
+        await reloadObjects()
+        if let state, state.initialDatabase == initialDatabase, state.database == database, error == nil, tabs.isEmpty {
+            var selected: UUID?
+            let available = Set(objects)
+            for saved in state.tabs {
+                if let object = saved.object, !available.contains(object) { continue }
+                let tab = saved.makeTab(id: notebook.restoredTabID(saved.id))
+                tabs.append(tab)
+                if saved.id == state.active { selected = tab.id }
+                if tab.object == nil {
+                    notebook.openDraft(tab.id)
+                    if tab.title.hasPrefix("Query "), let n = Int(tab.title.dropFirst(6)), n < Int.max {
+                        nextQueryNumber = max(nextQueryNumber, n + 1)
+                    }
+                }
+            }
+            consoleHeight = state.consoleHeight; navigator = state.navigator
+            showItems = state.panels.items; showDetails = state.panels.detail; showConsole = state.panels.console
+            activeID = selected ?? tabs.first?.id
+        }
+        // Don't replace an existing session with an empty list on a catalog error.
+        readyToSave = state == nil || error == nil
+        offerBootstrap()
+    }
+
+    func rememberOnClose() {
+        guard readyToSave, shouldRemember() else { return }
+        let state = RememberedWorkspace(initialDatabase: initialDatabase, database: database, tabs: tabs.map(RememberedTab.init),
+                                        active: activeID, panels: PanelLayout(items: showItems, detail: showDetails, console: showConsole),
+                                        consoleHeight: consoleHeight, navigator: navigator)
+        do { try notebook.workspaceState.write(state) } catch { self.error = error.localizedDescription }
+    }
+
     private func panelChanged(_ area: FocusArea, visible: Bool) {
-        notebook.saveLayout(PanelLayout(items: showItems, detail: showDetails, console: showConsole))
+        if shouldRemember() { notebook.saveLayout(PanelLayout(items: showItems, detail: showDetails, console: showConsole)) }
         guard !visible && focusArea == area else { return }
         Task { @MainActor [weak self] in
             await Task.yield()
@@ -346,11 +395,33 @@ final class Workspace: Identifiable {
         return true
     }
 
-    func closeTab(_ tab: WorkspaceTab) {
-        guard !tab.busy else { return }
-        tab.draftSave?.cancel(); notebook.removeDraft(tab.id); notebook.releaseDraft(tab.id)
-        tabs.removeAll { $0.id == tab.id }
-        if activeID == tab.id { activeID = tabs.last?.id }
+    enum CloseScope: String, CaseIterable {
+        case others = "Close Other Tabs", left = "Close Tabs to the Left", right = "Close Tabs to the Right", all = "Close All Tabs"
+    }
+
+    func targets(_ scope: CloseScope, relativeTo tab: WorkspaceTab) -> [WorkspaceTab] {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return [] }
+        switch scope {
+        case .others: return tabs.filter { $0.id != tab.id }
+        case .left: return Array(tabs[..<index])
+        case .right: return Array(tabs.dropFirst(index + 1))
+        case .all: return tabs
+        }
+    }
+
+    func closeTab(_ tab: WorkspaceTab) { closeTabs([tab]) }
+
+    func closeTabs(_ targets: [WorkspaceTab], keeping anchor: UUID? = nil) {
+        guard !targets.contains(where: \.busy) else { return }
+        let ids = Set(targets.map(\.id))
+        for tab in targets {
+            tab.draftSave?.cancel(); notebook.removeDraft(tab.id); notebook.releaseDraft(tab.id)
+        }
+        let index = tabs.firstIndex { $0.id == activeID } ?? 0
+        tabs.removeAll { ids.contains($0.id) }
+        if let activeID, ids.contains(activeID) {
+            self.activeID = tabs.first(where: { $0.id == anchor })?.id ?? (tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id)
+        }
     }
 
     private func record(_ error: Error) {
@@ -376,6 +447,17 @@ final class Workspace: Identifiable {
         tab.showStructure = structure
         tabs.append(tab)
         activeID = tab.id
+        await loadTable(tab)
+    }
+
+    func loadRestoredTab(_ tab: WorkspaceTab?) async {
+        guard let tab, tab.needsTableLoad else { return }
+        tab.needsTableLoad = false
+        await loadTable(tab)
+    }
+
+    private func loadTable(_ tab: WorkspaceTab) async {
+        guard let object = tab.object else { return }
         if object.kind == .procedure || object.kind == .function {
             tab.section = "DDL"; tab.showStructure = true
             return
@@ -518,9 +600,20 @@ final class Workspace: Identifiable {
 }
 
 @MainActor @Observable
-final class WorkspaceRegistry {
+final class WorkspaceRegistry: NSObject {
     var sessions: [UUID: Workspace] = [:]
     private var notebooks: [URL: QueryNotebook] = [:]
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(rememberOpenWindows),
+                                               name: NSApplication.willTerminateNotification, object: nil)
+    }
+    @objc private func rememberOpenWindows() {
+        // If a profile has several windows, reopen the frontmost one's tabs.
+        for window in NSApp.orderedWindows.reversed() {
+            sessions.values.first { $0.window === window }?.rememberOnClose()
+        }
+    }
     func notebook(for id: UUID, directory: URL) -> QueryNotebook {
         let key = directory.appending(path: id.uuidString)
         if let existing = notebooks[key] { return existing }

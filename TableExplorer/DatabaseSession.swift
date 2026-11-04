@@ -3,7 +3,7 @@ import Foundation
 import Darwin
 import SQLite3
 
-enum SQLValue: Hashable, Sendable {
+enum SQLValue: Hashable, Codable, Sendable {
     case null, text(String), integer(String), number(String), blob(Data)
 
     var display: String {
@@ -22,8 +22,8 @@ struct QueryResult: Sendable {
     var truncated = false
 }
 
-struct DatabaseObject: Hashable, Identifiable, Sendable {
-    enum Kind: String, CaseIterable, Sendable { case table = "Table", view = "View", procedure = "Procedure", function = "Function" }
+struct DatabaseObject: Hashable, Identifiable, Codable, Sendable {
+    enum Kind: String, CaseIterable, Codable, Sendable { case table = "Table", view = "View", procedure = "Procedure", function = "Function" }
     let name: String
     let kind: Kind
     var id: Self { self }

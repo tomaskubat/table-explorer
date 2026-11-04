@@ -88,7 +88,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
                         for tab in self.workspace.unsavedQueries {
                             if choice == .alertSecondButtonReturn {
                                 guard try self.workspace.saveSQL(tab) else { return }
-                            } else { tab.savedSQL = tab.sql }
+                            } else { tab.sql = tab.savedSQL }
                         }
                         sender?.performClose(nil)
                     } catch { self.workspace.error = error.localizedDescription }
@@ -110,6 +110,11 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
                 }
             }
             return false
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            workspace.rememberOnClose()
+            original?.windowWillClose?(notification)
         }
     }
 }

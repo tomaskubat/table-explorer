@@ -5,10 +5,14 @@ struct WorkspaceView: View {
     let registry: WorkspaceRegistry
     @State private var search = ""
     @State private var fieldSearch = ""
-    @State private var consoleHeight: CGFloat = 135
-    @State private var navigator = "Items"
     @State private var closing: WorkspaceTab?
     @State private var closingSQL: WorkspaceTab?
+    @State private var renaming: WorkspaceTab?
+    private struct BulkClose {
+        let tabs: [WorkspaceTab]
+        let anchor: UUID
+    }
+    @State private var bulkClose: BulkClose?
     @FocusState private var panelFocus: Workspace.FocusArea?
 
     var body: some View {
@@ -32,8 +36,15 @@ struct WorkspaceView: View {
             Button("Keep Editing", role: .cancel) {}
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
+        .confirmationDialog("Close tabs with unsaved changes?", isPresented: Binding(get: { bulkClose != nil }, set: { if !$0 { bulkClose = nil } }), presenting: bulkClose) { request in
+            Button("Discard Changes and Close", role: .destructive) { workspace.closeTabs(request.tabs, keeping: request.anchor) }
+            Button("Keep Editing", role: .cancel) {}
+        } message: { request in
+            Text("Unsaved changes in: " + request.tabs.filter { $0.unsavedSQL || !$0.changes.isEmpty }.map(\.title).joined(separator: ", "))
+        }
         .focusedSceneValue(\.activeConnectionTab, workspace.active)
         .focusedSceneValue(\.closeWorkspaceTab, requestCloseActiveTab)
+        .sheet(item: $renaming) { tab in RenameWorkspaceTab(tab: tab) }
         .sheet(isPresented: $workspace.recoveryShown) { DraftRecoveryView(workspace: workspace) }
         .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
         .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
@@ -58,7 +69,8 @@ struct WorkspaceView: View {
                 }
             }.padding(18).frame(width: 480, height: 300)
         }
-        .task { await workspace.reloadObjects(); workspace.offerBootstrap() }
+        .task { await workspace.start() }
+        .task(id: workspace.activeID) { await workspace.loadRestoredTab(workspace.active) }
     }
     private var layout: some View {
         VStack(spacing: 0) {
@@ -84,13 +96,13 @@ struct WorkspaceView: View {
         HSplitView {
             if workspace.showItems {
                 VStack(alignment: .leading, spacing: 0) {
-                    Picker("Navigator", selection: $navigator) {
+                    Picker("Navigator", selection: $workspace.navigator) {
                         ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
                     }.pickerStyle(.segmented).labelsHidden().controlSize(.small).tint(.gray)
-                    .padding(.horizontal, 9).padding(.vertical, 5).onChange(of: navigator) { search = "" }
-                    ChromeSearchField(title: navigator == "Items" ? "Search for item" : "Search queries", text: $search)
+                    .padding(.horizontal, 9).padding(.vertical, 5).onChange(of: workspace.navigator) { search = "" }
+                    ChromeSearchField(title: workspace.navigator == "Items" ? "Search for item" : "Search queries", text: $search)
                         .focused($panelFocus, equals: .items).padding(.horizontal, 9).padding(.bottom, 4)
-                    if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
+                    if workspace.navigator != "Items" { QueryNavigator(workspace: workspace, history: workspace.navigator == "History", search: search) }
                     else { ObjectListView(workspace: workspace, search: search) }
                     HStack {
                         Spacer()
@@ -122,8 +134,8 @@ struct WorkspaceView: View {
                     if workspace.showConsole {
                         // Keep enough space for either the data grid or the SQL editor and result.
                         let limits = CGFloat(66)...max(66, area.size.height - 294)
-                        let height = min(max(consoleHeight, limits.lowerBound), limits.upperBound)
-                        ConsoleDivider(height: height, limits: limits) { consoleHeight = $0 }
+                        let height = min(max(workspace.consoleHeight, limits.lowerBound), limits.upperBound)
+                        ConsoleDivider(height: height, limits: limits) { workspace.consoleHeight = $0 }
                             .frame(height: 7)
                         WorkspaceConsole(workspace: workspace).frame(height: height)
                             .focusable().focused($panelFocus, equals: .console)
@@ -151,7 +163,7 @@ struct WorkspaceView: View {
                                     .font(.system(size: 11, weight: active ? .semibold : .regular))
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).accessibilityIdentifier("workspace-tab-" + tab.title)
                             Button {
                                 requestClose(tab)
                             } label: {
@@ -164,7 +176,20 @@ struct WorkspaceView: View {
                         .frame(width: max(100, area.size.width / CGFloat(workspace.tabs.count)), height: 25)
                         .background(active ? BrowserChrome.paper : BrowserChrome.bar)
                         .overlay(alignment: .trailing) { Divider().allowsHitTesting(false) }
-                        .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
+                        .contextMenu {
+                            Button("Rename Tab…") { renaming = tab }
+                            Divider()
+                            Button("Close Tab") { requestClose(tab) }.disabled(tab.busy)
+                            Divider()
+                            ForEach(Workspace.CloseScope.allCases, id: \.self) { scope in
+                                let targets = workspace.targets(scope, relativeTo: tab)
+                                Button(scope.rawValue) {
+                                    if targets.contains(where: { $0.unsavedSQL || !$0.changes.isEmpty }) {
+                                        bulkClose = BulkClose(tabs: targets, anchor: tab.id)
+                                    } else { workspace.closeTabs(targets, keeping: tab.id) }
+                                }.disabled(targets.isEmpty || targets.contains(where: \.busy))
+                            }
+                        }
                     }
                 }
             }.scrollIndicators(.hidden)
@@ -180,6 +205,26 @@ struct WorkspaceView: View {
         if !tab.changes.isEmpty { closing = tab }
         else if tab.unsavedSQL { closingSQL = tab }
         else { workspace.closeTab(tab) }
+    }
+}
+
+private struct RenameWorkspaceTab: View {
+    let tab: WorkspaceTab
+    @State private var name: String
+    @Environment(\.dismiss) private var dismiss
+    init(tab: WorkspaceTab) { self.tab = tab; _name = State(initialValue: tab.title) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Rename Tab").font(.headline)
+            TextField("Tab Name", text: $name).accessibilityIdentifier("Tab Name")
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Rename") { tab.title = name.trimmingCharacters(in: .whitespacesAndNewlines); dismiss() }
+                    .keyboardShortcut(.defaultAction).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }.padding(16).frame(width: 300)
     }
 }
 

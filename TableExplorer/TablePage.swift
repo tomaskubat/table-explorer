@@ -1,8 +1,8 @@
 import Foundation
 
-struct ColumnFilter: Identifiable, Hashable, Sendable {
-    enum Operation: String, CaseIterable, Sendable { case contains = "Contains", equals = "Equals", notEquals = "Not equal", less = "Less than", greater = "Greater than", isNull = "Is NULL", notNull = "Is not NULL", raw = "Raw SQL" }
-    let id = UUID()
+struct ColumnFilter: Identifiable, Hashable, Codable, Sendable {
+    enum Operation: String, CaseIterable, Codable, Sendable { case contains = "Contains", equals = "Equals", notEquals = "Not equal", less = "Less than", greater = "Greater than", isNull = "Is NULL", notNull = "Is not NULL", raw = "Raw SQL" }
+    var id = UUID()
     var enabled = true
     var column: String
     var operation = Operation.contains

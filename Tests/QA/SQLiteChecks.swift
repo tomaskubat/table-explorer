@@ -38,6 +38,37 @@ import Synchronization
             throw BrowserError("FAIL: malformed SSH URL accepted")
         }
     }
+    @MainActor private static func checkWorkspace(profile: ConnectionProfile, session: DatabaseSession, database: String, support: URL) async throws {
+        func open(_ p: ConnectionProfile) async -> Workspace {
+            let w = Workspace(profile: p, session: session, database: database, password: "", sshPassword: "",
+                              notebook: QueryNotebook(directory: support, profile: p.id))
+            await w.start()
+            return w
+        }
+        let first = await open(profile)
+        await first.open(DatabaseObject(name: "mesto", kind: .table))
+        guard let table = first.active else { throw BrowserError("Missing fixture tab") }
+        table.filters = [ColumnFilter(column: "id", operation: .equals, value: "2")]
+        await first.applyFilters(table)
+        table.sortColumn = "nazev"; table.descending = true; table.hiddenColumns = ["poznamka"]
+        first.newQuery(text: "DELETE FROM mesto")
+        first.consoleHeight = 185
+        first.rememberOnClose()
+        let other = await open({ var copy = profile; copy.id = UUID(); return copy }())
+        try check(other.tabs.isEmpty, "connections do not share their remembered tabs")
+        let restored = await open(profile)
+        try check(restored.tabs.count == 2 && restored.active?.sql == "DELETE FROM mesto" && restored.active?.executions.isEmpty == true && restored.consoleHeight == 185,
+                  "workspace restores tab order, active SQL editor and layout without executing SQL")
+        let reopened = restored.tabs[0]
+        try check(reopened.result.rows.isEmpty && reopened.needsTableLoad, "background tables are not queried on reopen")
+        await restored.loadRestoredTab(reopened)
+        try check(reopened.result.rows.count == 1 && reopened.result.rows.first?.first == .integer("2") && reopened.sortColumn == "nazev" && reopened.descending && reopened.hiddenColumns == ["poznamka"],
+                  "table data is fetched with the remembered filter, sort and columns")
+        restored.closeTabs(restored.tabs)
+        restored.rememberOnClose()
+        try check((await open(profile)).tabs.isEmpty, "closing all tabs replaces the old session with an empty one")
+    }
+
     private static func run() async throws {
         try checkSSHAddresses()
         let path = CommandLine.arguments[1]
@@ -49,6 +80,7 @@ import Synchronization
         var profile = ConnectionProfile(); profile.driver = .sqlite; profile.filePath = path
         let s = DatabaseSession()
         let target = try await s.open(profile, password: "")
+        try await checkWorkspace(profile: profile, session: s, database: target, support: support)
         let objs = try await s.objects()
         let city = DatabaseObject(name: "mesto", kind: .table)
         try check(Set(objs) == [city, DatabaseObject(name: "zeme", kind: .table),

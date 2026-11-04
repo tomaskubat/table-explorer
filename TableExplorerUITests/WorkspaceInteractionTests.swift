@@ -4,6 +4,10 @@ import XCTest
 final class WorkspaceInteractionTests: XCTestCase {
     /// A populated workspace with a private database; no user profile is opened.
     @MainActor private func inCatalog(_ run: (XCUIElement) throws -> Void) throws {
+        try inCatalog { _, window in try run(window) }
+    }
+
+    @MainActor private func inCatalog(_ run: (XCUIApplication, XCUIElement) throws -> Void) throws {
         let app = XCUIApplication(), fm = FileManager.default
         let p = fm.temporaryDirectory.appending(path: UUID().uuidString)
         try fm.createDirectory(at: p, withIntermediateDirectories: true)
@@ -23,7 +27,98 @@ final class WorkspaceInteractionTests: XCTestCase {
         let city = window.staticTexts["mesto"]
         XCTAssertTrue(city.waitForExistence(timeout: 5)); city.click()
         XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 4))
-        try run(window)
+        try run(app, window)
+    }
+
+    @MainActor func testTabContextMenuUsesClickedTabAndProtectsDirtyTabs() throws {
+        continueAfterFailure = false
+        try inCatalog { app, window in
+            func open(_ name: String) {
+                window.staticTexts[name].doubleClick()
+                XCTAssertTrue(window.buttons["workspace-tab-" + name].waitForExistence(timeout: 4))
+            }
+            func close(_ action: String, at tab: String) {
+                window.buttons["workspace-tab-" + tab].rightClick()
+                app.menuItems[action].click()
+            }
+            open("zeme"); open("v_mesta")
+            window.buttons["workspace-tab-mesto"].rightClick()
+            XCTAssertFalse(app.menuItems["Close Tabs to the Left"].isEnabled)
+            app.typeKey(.escape, modifierFlags: [])
+            close("Close Tabs to the Right", at: "zeme")
+            XCTAssertFalse(window.buttons["workspace-tab-v_mesta"].exists)
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 3))
+            open("v_mesta")
+            close("Close Tabs to the Left", at: "zeme")
+            XCTAssertFalse(window.buttons["workspace-tab-mesto"].exists)
+            open("mesto")
+            close("Close Other Tabs", at: "zeme")
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 3))
+            window.buttons["New Query"].click()
+            window.textViews["SQL Editor"].replaceText(with: "SELECT 42;")
+            window.buttons["workspace-tab-zeme"].rightClick()
+            app.menuItems["Rename Tab…"].click()
+            app.textFields["Tab Name"].replaceText(with: "Countries")
+            app.buttons["Rename"].click()
+            close("Close All Tabs", at: "Countries")
+            app.buttons["Keep Editing"].click()
+            XCTAssertEqual(window.textViews["SQL Editor"].value as? String, "SELECT 42;")
+            XCTAssertTrue(window.buttons["workspace-tab-Countries"].exists)
+            close("Close All Tabs", at: "Countries")
+            app.buttons["Discard Changes and Close"].click()
+            XCTAssertTrue(window.staticTexts["No Open Tabs"].waitForExistence(timeout: 4))
+        }
+    }
+
+    @MainActor func testProfileRestoresOpenTabsAndCanForgetThem() throws {
+        continueAfterFailure = false
+        try inCatalog { app, window in
+            let profile = app.windows["Saved Connections"].staticTexts["QA"]
+            func closeWindow() {
+                window.buttons[XCUIIdentifierCloseWindow].click()
+                XCTAssertTrue(window.waitForNonExistence(timeout: 5))
+            }
+            window.staticTexts["zeme"].click()
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            window.radioButtons["Structure"].click()
+            window.buttons["Row Detail"].click()
+            closeWindow()
+            app.terminate(); app.launch()
+            profile.doubleClick()
+            XCTAssertTrue(window.buttons["workspace-tab-mesto"].waitForExistence(timeout: 5))
+            XCTAssertTrue(window.buttons["workspace-tab-zeme"].exists)
+            XCTAssertTrue(window.popUpButtons["Structure Section"].exists)
+            XCTAssertFalse(window.textFields["Search for field"].exists)
+            window.buttons["workspace-tab-mesto"].click()
+            XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
+            closeWindow()
+            profile.rightClick(); app.menuItems["Edit Connection…"].click()
+            let remember = app.checkBoxes["Remember open tabs and workspace state"]
+            XCTAssertTrue(remember.waitForExistence(timeout: 5))
+            remember.setChecked(false)
+            app.buttons["Save"].click()
+            profile.doubleClick()
+            XCTAssertTrue(window.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
+            XCTAssertTrue(window.textFields["Search for field"].exists)
+            window.staticTexts["zeme"].click()
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 4))
+            closeWindow(); profile.doubleClick()
+            XCTAssertTrue(window.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
+        }
+    }
+
+    @MainActor func testQuittingAppRemembersStillOpenWorkspace() throws {
+        continueAfterFailure = false
+        try inCatalog { app, window in
+            window.staticTexts["zeme"].click()
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            app.typeKey("q", modifierFlags: .command)
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 8))
+            app.launch()
+            app.windows["Saved Connections"].staticTexts["QA"].doubleClick()
+            XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            XCTAssertTrue(window.buttons["workspace-tab-mesto"].exists)
+        }
     }
 
     @MainActor func testDoubleClickOnConnectionStatusFillsScreenAndRestoresWindow() throws {

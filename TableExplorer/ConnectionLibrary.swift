@@ -24,6 +24,11 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var caPath = ""
     var filePath = ""
     var rememberPassword = false
+    var rememberOpenTabs: Bool?
+    var remembersWorkspace: Bool {
+        get { rememberOpenTabs ?? true }
+        set { rememberOpenTabs = newValue }
+    }
     var ssh: SSHSettings?
     var bootstrapSQL: String?
     var tagColor: String?
@@ -195,6 +200,9 @@ final class ConnectionLibrary {
             if touchesSSH { try ProfilePassword.write(originalSSH, for: profile.id, ssh: true) }
             if touchesKeychain { try ProfilePassword.write(original, for: profile.id) }
             throw error
+        }
+        if !profile.remembersWorkspace {
+            try WorkspaceStateFile(directory: directory, profile: profile.id).clear()
         }
     }
 }

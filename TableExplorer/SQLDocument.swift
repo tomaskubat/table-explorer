@@ -134,6 +134,8 @@ final class QueryNotebook {
         var drafts: [String: RecoverableSQL]?
     }
     private var openDrafts: Set<UUID> = []
+    func restoredTabID(_ id: UUID) -> UUID { openDrafts.contains(id) ? UUID() : id }
+    let workspaceState: WorkspaceStateFile
     var panels: PanelLayout { archive.panels ?? PanelLayout() }
     func saveLayout(_ layout: PanelLayout) {
         guard panels != layout else { return }
@@ -162,6 +164,7 @@ final class QueryNotebook {
     var favorites: [FavoriteQuery] { archive.favorites }
 
     init(directory: URL, profile: UUID) {
+        workspaceState = WorkspaceStateFile(directory: directory, profile: profile)
         file = directory.appending(path: "Queries").appending(path: profile.uuidString + ".json")
         if FileManager.default.fileExists(atPath: file.path) {
             do { archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: file)) }
