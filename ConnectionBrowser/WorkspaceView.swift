@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     @State private var search = ""
+    @State private var navigator = "Items"
     @State private var showItems = true
     @State private var showDetails = true
     @State private var showConsole = true
@@ -12,9 +13,12 @@ struct WorkspaceView: View {
             HSplitView {
                 if showItems {
                     VStack(alignment: .leading) {
-                        Text("Items").font(.headline)
-                        TextField("Search for item", text: $search)
-                        List(workspace.objects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { object in
+                        Picker("Navigator", selection: $navigator) {
+                            ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
+                        }.pickerStyle(.segmented).labelsHidden().onChange(of: navigator) { search = "" }
+                        TextField(navigator == "Items" ? "Search for item" : "Search queries", text: $search)
+                        if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
+                        else { List(workspace.objects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { object in
                             Label(object.name, systemImage: object.kind == .view ? "eye" : "tablecells")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
@@ -26,7 +30,7 @@ struct WorkspaceView: View {
                                         NSPasteboard.general.setString(object.name, forType: .string)
                                     }
                                 }
-                        }.listStyle(.plain)
+                        }.listStyle(.plain) }
                     }.padding(8).frame(minWidth: 135, idealWidth: 185, maxWidth: 270)
                 }
                 VStack(alignment: .leading, spacing: 0) {
@@ -93,12 +97,7 @@ private struct WorkspaceTabView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if tab.object == nil {
-                TextEditor(text: $tab.sql)
-                    .font(.system(.body, design: .monospaced))
-                    .accessibilityLabel("SQL Editor").frame(minHeight: 70, maxHeight: 130)
-                Button("Run SQL") { Task { await workspace.execute(tab.sql, on: tab) } }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(tab.busy || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                QueryPane(workspace: workspace, tab: tab)
             }
             if tab.object != nil {
                 Picker("Object Mode", selection: $tab.showStructure) {
@@ -114,7 +113,7 @@ private struct WorkspaceTabView: View {
                 }
             }
             if tab.busy { ProgressView("Running query…").controlSize(.small) }
-            if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
             if tab.showStructure {
                 if tab.section == "DDL", let row = tab.structureResult.rows.first {
                     ScrollView { Text(row.first(where: { $0.display.uppercased().contains("CREATE ") })?.display ?? "")

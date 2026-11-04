@@ -136,6 +136,10 @@ final class SQLiteHandle {
                 guard prepare == SQLITE_OK else { throw BrowserError("SQLite: \(String(cString: sqlite3_errmsg(database)))") }
                 guard let statement else { continue }
                 defer { sqlite3_finalize(statement) }
+                if let tail = current, tail.pointee != 0,
+                   !SQLDocument.statements(in: String(cString: tail), driver: .sqlite).isEmpty {
+                    throw BrowserError("Expected one SQL statement. Use Run Script for multiple statements.")
+                }
                 if !parameters.isEmpty { try bind(parameters, to: statement) }
                 let count = sqlite3_column_count(statement)
                 result = QueryResult(columns: (0..<count).map { String(cString: sqlite3_column_name(statement, $0)) })

@@ -7,6 +7,15 @@ final class WorkspaceTab: Identifiable {
     var title: String
     let object: DatabaseObject?
     var sql = ""
+    var textSelection = NSRange(location: 0, length: 0)
+    var executions: [(sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
+    var executionIndex = 0
+    var lastDuration: TimeInterval? { executions.indices.contains(executionIndex) ? executions[executionIndex].duration : nil }
+    func selectExecution(_ index: Int) {
+        guard executions.indices.contains(index) else { return }
+        executionIndex = index
+        result = executions[index].result; error = executions[index].error; selected = nil
+    }
     var result = QueryResult()
     var error: String?
     var busy = false
@@ -91,6 +100,7 @@ final class WorkspaceTab: Identifiable {
 final class Workspace: Identifiable {
     let id = UUID()
     let profile: ConnectionProfile
+    let notebook: QueryNotebook
     let session: DatabaseSession
     let database: String
     var objects: [DatabaseObject] = []
@@ -101,7 +111,8 @@ final class Workspace: Identifiable {
     var error: String?
     var connected = true
 
-    init(profile: ConnectionProfile, session: DatabaseSession, database: String) {
+    init(profile: ConnectionProfile, session: DatabaseSession, database: String, notebook: QueryNotebook) {
+        self.notebook = notebook
         self.profile = profile; self.session = session; self.database = database
     }
 
@@ -143,8 +154,9 @@ final class Workspace: Identifiable {
         tab.busy = false
     }
 
-    func newQuery() {
+    func newQuery(text: String = "") {
         let tab = WorkspaceTab(title: "Query \(tabs.filter { $0.object == nil }.count + 1)")
+        tab.sql = text
         tabs.append(tab); activeID = tab.id
     }
     func load(_ tab: WorkspaceTab) async {
@@ -163,19 +175,36 @@ final class Workspace: Identifiable {
             tab.error = error.localizedDescription; log.append(error.localizedDescription)
         }
     }
-    func execute(_ sql: String, on tab: WorkspaceTab) async {
+    func run(_ statements: [String], on tab: WorkspaceTab) async {
         guard connected, !tab.busy else { return }
-        tab.busy = true; tab.error = nil
+        tab.busy = true; tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
         defer { tab.busy = false }
-        log.append(sql)
-        do {
-            tab.result = try await session.query(sql, limit: tab.object == nil ? 1000 : tab.limit)
-            tab.selected = nil
-        } catch { tab.error = error.localizedDescription; log.append(error.localizedDescription) }
+        for sql in statements {
+            guard connected else { tab.error = "This workspace is disconnected."; return }
+            let start = Date()
+            var result = QueryResult()
+            var failure: String?
+            do { result = try await session.query(sql) }
+            catch { failure = error.localizedDescription }
+            let duration = Date().timeIntervalSince(start)
+            let hidden = QueryNotebook.containsCredentials(sql)
+            log.append(hidden ? "Statement containing credentials" : sql)
+            if let failure { log.append(hidden ? "Statement failed" : failure) }
+            notebook.record(sql: sql, duration: duration, error: failure)
+            tab.executions.append((sql, result, failure, duration)); tab.selectExecution(tab.executions.count - 1)
+            if failure != nil { break }
+        }
     }
 }
 
 @MainActor @Observable
 final class WorkspaceRegistry {
     var sessions: [UUID: Workspace] = [:]
+    private var notebooks: [UUID: QueryNotebook] = [:]
+    func notebook(for id: UUID, directory: URL) -> QueryNotebook {
+        if let existing = notebooks[id] { return existing }
+        let notebook = QueryNotebook(directory: directory, profile: id)
+        notebooks[id] = notebook
+        return notebook
+    }
 }

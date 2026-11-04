@@ -154,7 +154,7 @@ struct SavedConnectionsView: View {
         }
     }
     private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String) {
-        let workspace = Workspace(profile: profile, session: session, database: database)
+        let workspace = Workspace(profile: profile, session: session, database: database, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
         workspaces.sessions[workspace.id] = workspace
         openWindow(value: workspace.id)
     }

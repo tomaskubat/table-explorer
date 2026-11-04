@@ -85,6 +85,7 @@ final class ConnectionLibrary {
     private(set) var groups: [ConnectionGroup] = []
     var loadError: String?
     private let file: URL
+    var directory: URL { file.deletingLastPathComponent() }
 
     init() {
         var directory = URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")
