@@ -60,4 +60,6 @@ Dvojklik na barevný pruh s názvem databáze zvětší pracovní okno na dostup
 
 Vydání publikuje GitHub Actions při odeslání nového rostoucího tagu `vX.Y.Z` (například `git tag v0.1.1` a `git push origin v0.1.1`). Po testech workflow zabalí aplikaci včetně MariaDB, OpenSSL a Sparkle, ověří přenositelnost i podpis rozbalené aplikace a až poté zveřejní ZIP, podepsaný `appcast.xml` a `SHA256SUMS.txt`. Nakonec ověří anonymní stažení souborů ze stejného kanálu jako instalované aplikace.
 
+Pokud se po odeslání tagu běh nespustí, zvol na GitHubu **Actions → Release → Run workflow** na větvi `main` a zadej existující tag. Sestaví se přesně označený commit.
+
 Pro místní sestavení a kontrolu vydání spusť `Scripts/package-release.sh v0.1.1` a `Scripts/sign-release.sh v0.1.1`. Výstup najdeš v `.build/distribution/v0.1.1/`. Podepisování používá účet `local.connectionbrowser.app` v Klíčence nebo repository secret `SPARKLE_PRIVATE_KEY` v Actions. Veřejný klíč je v `Configuration/sparkle-public-key.txt`. Soukromý klíč zálohuj spolu s Klíčenkou. Pro budoucí vydání potřebuješ stejný klíč. Vývojové sestavení spuštěné z Xcode aktualizace nekontroluje.
