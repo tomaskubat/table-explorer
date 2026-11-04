@@ -17,6 +17,12 @@
         <key>LSHandlerRank</key><string>Alternate</string>
         <key>LSItemContentTypes</key><array><string>org.iso.sql</string></array>
     </dict></array>
+    <key>UTExportedTypeDeclarations</key>
+    <array><dict>
+        <key>UTTypeIdentifier</key><string>local.tableexplorer.saved-connection-id</string>
+        <key>UTTypeDescription</key><string>Saved Connection ID</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+    </dict></array>
     <key>UTImportedTypeDeclarations</key>
     <array><dict>
         <key>UTTypeIdentifier</key><string>org.iso.sql</string>

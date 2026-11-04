@@ -152,16 +152,27 @@ final class ConnectionLibrary {
         groups = next
     }
 
-    func move(_ profileID: UUID, to groupID: UUID) throws {
+    enum Insertion: Equatable { case before(UUID), after(UUID), end }
+
+    func move(_ profileID: UUID, to groupID: UUID, at insertion: Insertion = .end) throws {
+        guard insertion != .before(profileID), insertion != .after(profileID) else { return }
         try update { groups in
             guard let to = groups.firstIndex(where: { $0.id == groupID }),
                   let from = groups.firstIndex(where: { $0.connections.contains { $0.id == profileID } }),
                   let row = groups[from].connections.firstIndex(where: { $0.id == profileID }) else {
                 throw BrowserError("The connection or destination group is no longer in the library.")
             }
-            guard from != to else { return }
             let profile = groups[from].connections.remove(at: row)
-            groups[to].connections.append(profile)
+            // Resolve the anchor after removing the source so downward moves
+            // within the same group don't land one row too far down.
+            switch insertion {
+            case .end: groups[to].connections.append(profile)
+            case .before(let anchor), .after(let anchor):
+                guard let index = groups[to].connections.firstIndex(where: { $0.id == anchor }) else {
+                    throw BrowserError("The target connection is no longer in this group.")
+                }
+                groups[to].connections.insert(profile, at: index + (insertion == .after(anchor) ? 1 : 0))
+            }
         }
     }
 

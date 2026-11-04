@@ -26,6 +26,10 @@ import Synchronization
                   "TablePlus export preserves preferred TLS, key authentication, production tag, name and status color")
         let copied = try ProfileAddress.url(tablePlus.profile).map { try ProfileAddress.parse($0.absoluteString) }
         try check(copied?.profile.usesPreferredTLS == true && copied?.profile.ssh?.keyOnly == true && copied?.profile.environment == "production" && copied?.profile.tagColor == "#FFD7D4", "copying the profile retains imported settings")
+        let sqlite = try ProfileAddress.parse("sqlite:///tmp/test.sqlite?name=Example&env=testing&statusColor=346E7B")
+        let reopened = try ProfileAddress.url(sqlite.profile).map { try ProfileAddress.parse($0.absoluteString) }
+        try check(reopened?.profile.name == "Example" && reopened?.profile.connectionTag == "testing" && reopened?.profile.tagColor == "#346E7B",
+                  "SQLite connection URLs retain the name, tag and custom status color")
         let inherited = try ProfileAddress.parse("mariadb://reader@localhost/catalog?ssh-host=qa-alias")
         try check(inherited.profile.ssh?.user == "" && inherited.profile.ssh?.port == "", "omitted SSH settings inherit config even in legacy URLs")
         let exported = try ProfileAddress.url(full.profile).map { try ProfileAddress.parse($0.absoluteString) }

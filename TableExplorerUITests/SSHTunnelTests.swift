@@ -48,7 +48,7 @@ final class SSHTunnelTests: XCTestCase {
         XCTAssertEqual(app.textFields["User"].value as? String, "browser")
         XCTAssertEqual(app.textFields["Database"].value as? String, "catalog")
         XCTAssertEqual(app.textFields["Connection Name"].value as? String, "reader@qa")
-        XCTAssertEqual(app.textFields["Environment"].value as? String, "production")
+        XCTAssertEqual(app.popUpButtons["Connection Tag"].value as? String, "production")
         XCTAssertTrue(app.buttons["Save and Connect"].isEnabled)
         app.buttons["Save and Connect"].click()
         let table = app.windows.containing(.staticText, identifier: "country").staticTexts["country"].firstMatch

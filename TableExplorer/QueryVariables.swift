@@ -77,7 +77,7 @@ struct VariablesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(reviewing ? "Review Parameterized SQL" : "Query Variables").font(.title2)
-            Text(workspace.profile.name + " / " + workspace.database + " · " + workspace.profile.environment.uppercased())
+            Text(workspace.profile.name + " / " + workspace.database + " · " + workspace.profile.connectionTag.uppercased())
             if reviewing {
                 ScrollView {
                     Text(query.expanded(using: values).joined(separator: "\n")).font(.system(.body, design: .monospaced))

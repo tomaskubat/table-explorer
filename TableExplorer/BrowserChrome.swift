@@ -29,12 +29,12 @@ struct DriverBadge: View {
 struct EnvironmentBadge: View {
     let profile: ConnectionProfile
     var body: some View {
-        if !profile.environment.isEmpty {
-            Text(String(profile.environment.prefix(3)).lowercased())
+        if !profile.connectionTag.isEmpty {
+            Text(String(profile.connectionTag.prefix(3)).lowercased())
                 .font(.system(size: 10)).padding(.horizontal, 4)
                 .overlay { RoundedRectangle(cornerRadius: 1).strokeBorder(lineWidth: 0.75) }
                 .foregroundStyle(profile.environmentColor)
-                .accessibilityLabel(profile.environment)
+                .accessibilityLabel(profile.connectionTag)
         }
     }
 }

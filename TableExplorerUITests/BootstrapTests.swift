@@ -15,7 +15,7 @@ final class BootstrapTests: XCTestCase {
         app.newProfile(driver: "SQLite")
         app.textFields["Connection Name"].replaceText(with: "Reviewed Startup")
         app.textFields["Database File"].replaceText(with: db.path)
-        app.textFields["Environment"].replaceText(with: "production")
+        app.popUpButtons["Connection Tag"].click(); app.menuItems["production"].click()
         app.buttons["Bootstrap SQL…"].click()
         app.textViews["Bootstrap Editor"].replaceText(with: "UPDATE mesto SET nazev='Startup' WHERE id=1;")
         app.buttons["Done"].click()

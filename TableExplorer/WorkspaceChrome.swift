@@ -6,13 +6,10 @@ struct WorkspaceTitleBar: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
 
-    private var statusColor: Color {
-        let p = workspace.profile
-        return p.tagColor != nil ? p.badgeColor : p.driver == .sqlite ? BrowserChrome.paper : p.environmentColor
-    }
+    private var statusColor: Color { workspace.profile.badgeColor }
     private var statusOpacity: Double {
-        if workspace.profile.tagColor?.hasPrefix("#") == true { return colorScheme == .dark ? 0.25 : 1 }
-        return workspace.profile.driver == .sqlite && workspace.profile.tagColor == nil ? 0.9 : 0.18
+        guard let color = workspace.profile.tagColor, !color.hasPrefix("#") else { return colorScheme == .dark ? 0.25 : 1 }
+        return 0.18 // Preserve the softer appearance of legacy system colors.
     }
 
     var body: some View {

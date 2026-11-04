@@ -33,10 +33,6 @@ enum ProfileAddress {
             } else if option("tLSMode") == "0" {
                 profile.verifyTLS = false; profile.preferTLS = true
             }
-            if let env = option("enviroment") ?? option("environment") ?? option("env") { profile.environment = env }
-            if let color = option("statusColor"), color.utf8.count == 6, UInt32(color, radix: 16) != nil {
-                profile.tagColor = "#" + color.uppercased()
-            }
             if ["safeModeLevel", "advancedSafeModeLevel"].contains(where: { option($0).map { $0 != "0" } == true }) {
                 throw BrowserError("This URL requires TablePlus Safe Mode, which TableExplorer does not support.")
             }
@@ -60,6 +56,10 @@ enum ProfileAddress {
             profile.driver = .sqlite; profile.filePath = parts.path
             profile.name = option("name") ?? URL(filePath: parts.path).deletingPathExtension().lastPathComponent
         default: throw BrowserError("This driver is not supported. Choose MariaDB or SQLite.")
+        }
+        if let env = option("enviroment") ?? option("environment") ?? option("env") { profile.environment = env }
+        if let color = option("statusColor"), color.utf8.count == 6, UInt32(color, radix: 16) != nil {
+            profile.tagColor = "#" + color.uppercased()
         }
         return (profile, parts.password ?? "", sshPassword)
     }
@@ -99,6 +99,7 @@ enum ProfileAddress {
 
     static func url(_ profile: ConnectionProfile) -> URL? {
         var parts = URLComponents()
+        var items: [URLQueryItem] = []
         if profile.driver == .sqlite {
             parts.scheme = "sqlite"; parts.host = ""; parts.path = profile.filePath
         } else {
@@ -106,19 +107,18 @@ enum ProfileAddress {
             parts.user = profile.user.isEmpty ? nil : profile.user
             parts.port = profile.usesSocket ? nil : Int(profile.port)
             parts.path = "/" + profile.database
-            var items: [URLQueryItem] = []
             if profile.usesSocket { items.append(URLQueryItem(name: "socket", value: profile.socketPath)) }
             if !profile.verifyTLS { items.append(URLQueryItem(name: "tls", value: profile.usesPreferredTLS ? "preferred" : "disabled")) }
-            if !profile.name.isEmpty { items.append(URLQueryItem(name: "name", value: profile.name)) }
-            if !profile.environment.isEmpty { items.append(URLQueryItem(name: "env", value: profile.environment)) }
-            if let color = profile.tagColor, color.hasPrefix("#") { items.append(URLQueryItem(name: "statusColor", value: String(color.dropFirst()))) }
             if let ssh = profile.ssh {
                 items += [URLQueryItem(name: "ssh-host", value: ssh.host), URLQueryItem(name: "ssh-port", value: ssh.port), URLQueryItem(name: "ssh-user", value: ssh.user)]
                 if !ssh.databaseFingerprint.isEmpty { items.append(URLQueryItem(name: "db-fingerprint", value: ssh.databaseFingerprint)) }
                 if ssh.keyOnly == true { items.append(URLQueryItem(name: "usePrivateKey", value: "true")) }
             }
-            if !items.isEmpty { parts.queryItems = items }
         }
+        if !profile.name.isEmpty { items.append(URLQueryItem(name: "name", value: profile.name)) }
+        if !profile.environment.isEmpty { items.append(URLQueryItem(name: "env", value: profile.environment)) }
+        if let color = profile.tagColor, color.hasPrefix("#") { items.append(URLQueryItem(name: "statusColor", value: String(color.dropFirst()))) }
+        if !items.isEmpty { parts.queryItems = items }
         return parts.url
     }
 }

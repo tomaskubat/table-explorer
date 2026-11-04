@@ -45,8 +45,8 @@ struct SavedConnectionsView: View {
                 if let issue = library.loadError { Text(issue).foregroundStyle(.red).padding(8) }
                 List(selection: $selection) {
                     ForEach(library.groups) { group in
-                        ConnectionGroupSection(group: group) { profile in
-                            modify { try library.move(profile, to: group.id) }
+                        ConnectionGroupSection(group: group) { profile, insertion in
+                            modify { try library.move(profile, to: group.id, at: insertion) }
                         }
                     }
                 }
@@ -58,7 +58,7 @@ struct SavedConnectionsView: View {
                     }
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden)
-                .environment(\.defaultMinListRowHeight, 37)
+                .environment(\.defaultMinListRowHeight, ConnectionGroupSection.rowHeight)
                 HStack {
                     Button("Create a new connection…") { newProfile(in: selectedGroup) }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -221,8 +221,9 @@ struct SavedConnectionsView: View {
 }
 
 private struct ConnectionGroupSection: View {
+    static let rowHeight: CGFloat = 37
     let group: ConnectionGroup
-    let move: (UUID) -> Void
+    let move: @MainActor (UUID, ConnectionLibrary.Insertion) -> Void
     @State private var expanded = true
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
@@ -234,23 +235,64 @@ private struct ConnectionGroupSection: View {
                             Text(profile.name).font(.system(size: 14)).lineLimit(1)
                             EnvironmentBadge(profile: profile)
                             if let tag = profile.tagColor {
-                                Circle().fill(profile.badgeColor).frame(width: 5, height: 5).accessibilityLabel(tag + " color tag")
+                                Circle().fill(profile.badgeColor).frame(width: 5, height: 5).accessibilityLabel("Status color " + tag)
                             }
                         }
                         Text(profile.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
-                }.frame(height: 37).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6)).draggable(profile.id.uuidString).tag(profile.id).listRowSeparator(.hidden)
+                }.frame(maxWidth: .infinity, alignment: .leading).frame(height: ConnectionGroupSection.rowHeight).contentShape(Rectangle())
+                    .draggable(ConnectionDrag(id: profile.id))
+                    .modifier(ConnectionDropTarget(anchor: profile.id, move: move))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6)).tag(profile.id).listRowSeparator(.hidden)
             }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: group.icon ?? "powerplug.fill").font(.system(size: 15, weight: .semibold)).rotationEffect(.degrees(group.icon == nil || group.icon == "powerplug.fill" ? -90 : 0)).frame(width: 30, height: 30)
                     .overlay { Circle().strokeBorder(lineWidth: 1.9) }.foregroundStyle(.orange).accessibilityHidden(true)
                 Text(group.name).font(.system(size: 14, weight: .semibold))
-            }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 37)
-                .dropDestination(for: String.self) { values, _ in
-                    guard values.count == 1, let id = UUID(uuidString: values[0]) else { return false }
-                    move(id); return true
-                }
+            }.frame(maxWidth: .infinity, alignment: .leading).frame(height: ConnectionGroupSection.rowHeight)
+                .contentShape(Rectangle()).modifier(ConnectionDropTarget(anchor: nil, move: move))
         }.listRowInsets(EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 6)).tag(group.id).listRowSeparator(.hidden)
+    }
+}
+
+private struct ConnectionDrag: Codable, Transferable {
+    let id: UUID
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: UTType(exportedAs: "local.tableexplorer.saved-connection-id"))
+    }
+}
+
+private struct ConnectionDropTarget: ViewModifier {
+    let anchor: UUID?
+    let move: @MainActor (UUID, ConnectionLibrary.Insertion) -> Void
+    @State private var hint: ConnectionLibrary.Insertion?
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if hint == .end {
+                RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor).allowsHitTesting(false)
+            } else if let hint {
+                Rectangle().fill(Color.accentColor).frame(height: 2)
+                    .frame(maxHeight: .infinity, alignment: hint == anchor.map(ConnectionLibrary.Insertion.before) ? .top : .bottom)
+                    .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: ConnectionDrag.self) { items, session in
+            guard items.count == 1, let dragged = items.first else { return }
+            move(dragged.id, position(in: session))
+        }
+        .onDropSessionUpdated { session in
+            switch session.phase {
+            case .entering, .active: hint = position(in: session)
+            default: hint = nil
+            }
+        }
+        .dropConfiguration { _ in DropConfiguration(operation: .move) }
+    }
+
+    private func position(in session: DropSession) -> ConnectionLibrary.Insertion {
+        guard let anchor else { return .end }
+        return session.location.y < ConnectionGroupSection.rowHeight / 2 ? .before(anchor) : .after(anchor)
     }
 }

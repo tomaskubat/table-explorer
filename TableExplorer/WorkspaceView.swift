@@ -58,7 +58,7 @@ struct WorkspaceView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Review Bootstrap SQL").font(.title2)
                 Text(workspace.profile.name + " / " + workspace.database)
-                Text(workspace.profile.environment.uppercased()).foregroundStyle(workspace.profile.environmentColor)
+                Text(workspace.profile.connectionTag.uppercased()).foregroundStyle(workspace.profile.environmentColor)
                 ScrollView {
                     Text(workspace.bootstrapReview.joined(separator: "\n")).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                 }
