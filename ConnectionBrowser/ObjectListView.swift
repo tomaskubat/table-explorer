@@ -24,7 +24,7 @@ struct ObjectListView: View {
         }
         .listStyle(.sidebar)
         .onChange(of: selection) {
-            if let selection { Task { await workspace.open(selection) } }
+            if let selection { workspace.focusArea = .items; Task { await workspace.open(selection) } }
         }
     }
     private func row(_ object: DatabaseObject) -> some View {

@@ -170,12 +170,12 @@ struct CSVOptionsView: View {
         HStack {
             Picker("Delimiter", selection: $settings.delimiter) {
                 Text("Comma").tag(","); Text("Semicolon").tag(";"); Text("Tab").tag("\t")
-            }
+            }.accessibilityIdentifier("CSV Delimiter")
             Picker("Quote", selection: $settings.quote) { Text("\"").tag("\""); Text("'").tag("'") }
             if importing {
                 Picker("Encoding", selection: $settings.encoding) { ForEach(["UTF-8", "UTF-16", "Latin-1"], id: \.self) { Text($0) } }
             } else {
-                Picker("Line ending", selection: $settings.lineEnding) { Text("LF").tag("LF"); Text("CRLF").tag("CRLF") }
+                Picker("Line ending", selection: $settings.lineEnding) { Text("LF").tag("LF"); Text("CRLF").tag("CRLF") }.accessibilityIdentifier("CSV Line Ending")
             }
         }
         HStack {

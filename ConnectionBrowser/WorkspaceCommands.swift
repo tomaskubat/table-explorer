@@ -26,6 +26,7 @@ struct WorkspaceCommands: Commands {
             Button("New SQL Document") { newDocument(SQLFileDocument()) }.keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Open SQL File…") { openSQL() }.keyboardShortcut("o")
             Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
+            Button("Recover SQL Draft…") { workspace?.recoveryShown = true }.disabled(workspace == nil)
             if let workspace, let tab = activeTab {
                 Divider()
                 if tab.object == nil {
@@ -62,6 +63,13 @@ struct WorkspaceCommands: Commands {
         }
         CommandGroup(after: .sidebar) {
             Button("Show Filters") { activeTab?.toggleFilters() }.keyboardShortcut("f").disabled(!gridFocused)
+            Button(workspace?.focusArea == .filter ? "Apply All Conditions" : "Run Current Statement") {
+                if let workspace, let activeTab {
+                    if workspace.focusArea == .filter { Task { await workspace.applyFilters(activeTab) } }
+                    else if sqlFocused { activeTab.runRequest = UUID() }
+                }
+            }.keyboardShortcut(.return, modifiers: .command)
+                .disabled(workspace?.connected != true || activeTab?.busy != false || !(sqlFocused || (workspace?.focusArea == .filter && activeTab?.filterEditorVisible == true)))
             Button("Choose Columns…") { activeTab?.columnsShown.toggle() }.keyboardShortcut("f", modifiers: [.command, .option]).disabled(!gridFocused)
             Button("Previous Page") { changePage(forward: false) }.keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(!gridFocused || activeTab?.busy != false || (activeTab?.offset ?? 0) == 0)

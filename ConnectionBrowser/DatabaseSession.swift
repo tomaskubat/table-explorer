@@ -89,7 +89,8 @@ final class MariaHandle {
         BrowserError.maria(mysql_errno(connection), String(cString: mysql_error(connection)))
     }
 
-    func query(_ sql: String, limit: Int, visit: (([SQLValue]) throws -> Void)? = nil) throws -> QueryResult {
+    func query(_ sql: String, limit: Int, visit: (([SQLValue]) throws -> Void)? = nil,
+               receiveResult: ((QueryResult) -> Void)? = nil) throws -> QueryResult {
         guard mysql_real_query(connection, sql, UInt(sql.utf8.count)) == 0 else { throw failure() }
         var result = QueryResult()
         var more: Int32
@@ -111,6 +112,7 @@ final class MariaHandle {
                     if let visit { try visit(values) } else { result.rows.append(values) }
                 }
                 if mysql_errno(connection) != 0 { throw failure() }
+                receiveResult?(result)
             } else if mysql_field_count(connection) != 0 {
                 throw failure()
             } else {
@@ -189,6 +191,8 @@ actor DatabaseSession {
     private var maria: MariaHandle?
     private var sqlite: SQLiteHandle?
     private var mariaEndpoint: (ConnectionProfile, String)?
+    private var mariaDatabase = ""
+    private var changedDatabase: String?
     private var tunnel: SSHTunnel?
 
     func open(_ profile: ConnectionProfile, password: String, sshPassword: String = "") throws -> String {
@@ -208,7 +212,8 @@ actor DatabaseSession {
                 maria = handle
                 mariaEndpoint = (endpoint, password)
                 let name = try query("SELECT DATABASE()").rows.first?.first
-                return name == .null ? "" : name?.display ?? ""
+                mariaDatabase = name == .null ? "" : name?.display ?? ""
+                return mariaDatabase
             case .sqlite:
                 sqlite = try SQLiteHandle(path: profile.filePath)
                 _ = try query("PRAGMA schema_version")
@@ -256,37 +261,99 @@ actor DatabaseSession {
         return false
     }
 
-    func close() { maria = nil; sqlite = nil; mariaEndpoint = nil; tunnel = nil }
+    func close() {
+        maria = nil; sqlite = nil; mariaEndpoint = nil; tunnel = nil
+        mariaDatabase = ""; changedDatabase = nil
+    }
 
-    func runUserSQL(_ sql: String, cancellation: QueryCancellation, limit: Int) throws -> QueryResult {
+    func selectDatabase(_ name: String) throws {
+        guard let maria else { throw BrowserError("No MariaDB session is open.") }
+        guard !hasOpenTransaction, changedDatabase == nil else { throw BrowserError("Finish the current transaction or database switch first.") }
+        guard mysql_select_db(maria.connection, name) == 0 else { throw maria.failure() }
+        mariaDatabase = name
+    }
+
+    func finishDatabaseChange(to name: String, accept: Bool) throws {
+        guard changedDatabase == name, let maria else { throw BrowserError("The session changed before the database switch completed.") }
+        defer { changedDatabase = nil }
+        if accept { mariaDatabase = name; return }
+        guard !mariaDatabase.isEmpty, mysql_select_db(maria.connection, mariaDatabase) == 0 else {
+            close()
+            throw BrowserError("The original database is unavailable. Reconnect before applying pending changes.", disconnected: true)
+        }
+        throw BrowserError("Finish pending changes, transactions, and running operations before switching databases.")
+    }
+
+    func runUserSQL(_ sql: String, on expectedDatabase: String, cancellation: QueryCancellation, limit: Int) throws -> (results: [QueryResult], changedDatabase: String?) {
         if let sqlite {
             // sqlite3_interrupt is specifically safe from another thread while
             // the retained connection is executing sqlite3_step.
-            return try cancellation.perform(interrupt: { sqlite3_interrupt(sqlite.database) }) {
+            return ([try cancellation.perform(interrupt: { sqlite3_interrupt(sqlite.database) }) {
                 try query(sql, limit: limit)
-            }
+            }], nil)
         }
         if let maria, let (profile, password) = mariaEndpoint {
+            guard changedDatabase == nil, expectedDatabase == mariaDatabase else {
+                throw BrowserError("The active database changed. Review the query target before running it again.")
+            }
+            let inTransaction = hasOpenTransaction
             let threadID = mysql_thread_id(maria.connection)
-            return try cancellation.perform(interrupt: {
+            let resultSets = try cancellation.perform(interrupt: {
                 var target = profile; target.database = ""
                 let control = try MariaHandle()
                 try control.open(target, password: password)
                 _ = try control.query("KILL QUERY \(threadID)", limit: 0)
-            }) { try query(sql, limit: limit) }
+            }) { try userResultSets(sql, limit: limit) }
+            let current: String
+            var bytes: UnsafePointer<CChar>?, length = 0
+            if mysql_session_track_get_first(maria.connection, SESSION_TRACK_SCHEMA, &bytes, &length) == 0 {
+                current = String(decoding: UnsafeRawBufferPointer(start: bytes, count: length), as: UTF8.self)
+            } else {
+                let token = sql.trimmingCharacters(in: .whitespacesAndNewlines).prefix { $0.isLetter }.uppercased()
+                if ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "INSERT", "UPDATE", "DELETE", "REPLACE"].contains(token) {
+                    current = mariaDatabase
+                } else {
+                    // Older servers and sessions with tracking disabled may omit
+                    // the schema from the protocol. Observe this thread from a
+                    // second login so ROW_COUNT() and SHOW WARNINGS stay intact.
+                    do {
+                        var endpoint = profile; endpoint.database = ""
+                        let observer = try MariaHandle()
+                        try observer.open(endpoint, password: password)
+                        let row = try observer.query("SELECT DB FROM information_schema.PROCESSLIST WHERE ID=" + String(threadID), limit: 1).rows.first
+                        guard let value = row?.first else { throw BrowserError("The server did not expose the session database.") }
+                        current = value == .null ? "" : value.display
+                    } catch {
+                        close()
+                        throw BrowserError("The statement finished, but its database target could not be verified. Reconnect before continuing. " + error.localizedDescription, disconnected: true)
+                    }
+                }
+            }
+            if current != mariaDatabase {
+                changedDatabase = current
+                if inTransaction { try finishDatabaseChange(to: current, accept: false) }
+            }
+            return (resultSets, changedDatabase)
         }
         throw BrowserError("This workspace is disconnected.", disconnected: true)
+    }
+
+    private func userResultSets(_ sql: String, limit: Int) throws -> [QueryResult] {
+        var sets: [QueryResult] = []
+        let status = try read(sql, parameters: [], limit: limit, visit: nil, receiveResult: { sets.append($0) })
+        return sets.isEmpty ? [status] : sets
     }
 
     func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {
         try read(sql, parameters: parameters, limit: limit, visit: nil)
     }
 
-    func read(_ sql: String, parameters: [SQLValue], limit: Int, visit: (([SQLValue]) throws -> Void)?) throws -> QueryResult {
+    func read(_ sql: String, parameters: [SQLValue], limit: Int, visit: (([SQLValue]) throws -> Void)?, receiveResult: ((QueryResult) -> Void)? = nil) throws -> QueryResult {
+        guard changedDatabase == nil else { throw BrowserError("The database is changing. Wait for the catalog to reload.") }
         if let maria {
             do {
                 if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit, visit: visit) }
-                return try maria.query(sql, limit: limit, visit: visit)
+                return try maria.query(sql, limit: limit, visit: visit, receiveResult: receiveResult)
             } catch let error as BrowserError {
                 if error.disconnected { close() }
                 throw error

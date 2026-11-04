@@ -27,6 +27,15 @@ final class GridInteractionTests: XCTestCase {
         let kosice = window.staticTexts["grid-1-nazev"]
         XCTAssertTrue(brno.waitForExistence(timeout: 5))
         brno.click()
+        let fieldSearch = window.textFields["Search for field"]
+        fieldSearch.replaceText(with: "na")
+        fieldSearch.typeText(" ")
+        XCTAssertEqual(fieldSearch.value as? String, "na ")
+        window.buttons["Row Detail"].click()
+        XCTAssertFalse(window.staticTexts["row-detail-header"].exists)
+        app.typeKey(.space, modifierFlags: [])
+        XCTAssertTrue(window.staticTexts["row-detail-header"].waitForExistence(timeout: 4))
+        brno.click()
         app.typeKey("f", modifierFlags: [.command, .option])
         let keyColumn = app.checkBoxes["id"]
         XCTAssertTrue(keyColumn.waitForExistence(timeout: 4))

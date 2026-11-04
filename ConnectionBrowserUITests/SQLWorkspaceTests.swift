@@ -26,7 +26,7 @@ final class SQLWorkspaceTests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 4))
         let first = "SELECT 'First' AS label UNION ALL SELECT 'Second';"
         editor.replaceText(with: first)
-        window.buttons["Run Current"].click()
+        window.textViews["SQL Editor"].typeKey(.return, modifierFlags: .command)
         XCTAssertTrue(window.staticTexts["Second"].waitForExistence(timeout: 4))
         window.buttons["New Query"].click()
         editor.replaceText(with: "SELECT * FROM no_such_table;")

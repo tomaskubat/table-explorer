@@ -25,8 +25,11 @@ struct QueryPane: View {
             if focused { workspace.focusArea = .sql } else if workspace.focusArea == .sql { workspace.focusArea = nil }
         }
             .frame(minHeight: 78, idealHeight: 130, maxHeight: 200)
+            .onChange(of: tab.sql) { workspace.updateRecovery(tab) }
+            .onChange(of: tab.runRequest) { if !tab.busy && workspace.connected { run(.current) } }
+            .onDisappear { workspace.saveRecovery(tab) }
         HStack {
-            Button("Run Current") { run(.current) }.keyboardShortcut(.return, modifiers: .command)
+            Button("Run Current") { run(.current) }.help("Run the statement at the cursor (⌘Return)")
             Menu("Run Options") {
                 Button("Run Selection") { run(.selection) }.disabled(tab.textSelection.length == 0)
                 Button("Run Script") { run(.script) }
@@ -41,8 +44,10 @@ struct QueryPane: View {
         }
         if tab.executions.count > 1 {
             Picker("Statement Result", selection: Binding(get: { tab.executionIndex }, set: { tab.selectExecution($0) })) {
-                ForEach(tab.executions.indices, id: \.self) { i in Text("Statement \(i + 1)").tag(i) }
-            }
+                ForEach(Array(tab.executions.map(\.title).enumerated()), id: \.offset) { index, title in
+                    Text(title).tag(index)
+                }
+            }.accessibilityIdentifier("Statement Result")
         }
         if let elapsed = tab.lastDuration {
             Text(String(format: "%.3f s", elapsed) + (tab.result.columns.isEmpty && tab.error == nil ? " · \(tab.result.affectedRows) affected rows" : ""))

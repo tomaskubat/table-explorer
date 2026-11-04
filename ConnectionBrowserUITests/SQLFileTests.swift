@@ -41,6 +41,9 @@ final class SQLFileTests: XCTestCase {
         app.menuBars.menuBarItems["Window"].click(); app.menuItems["Show Workspaces"].click()
         let overview = app.windows["Workspaces"]
         XCTAssertTrue(overview.buttons["files / files.sqlite"].waitForExistence(timeout: 5))
+        XCTAssertTrue(overview.buttons["New Workspace"].isHittable)
+        let preview = XCTAttachment(screenshot: overview.screenshot())
+        preview.name = "Workspace overview"; preview.lifetime = .keepAlways; add(preview)
         overview.buttons["files / files.sqlite"].click()
 
         openFile()

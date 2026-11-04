@@ -126,7 +126,34 @@ struct FavoriteQuery: Identifiable, Codable {
 
 @MainActor @Observable
 final class QueryNotebook {
-    private struct Archive: Codable { var history: [QueryRecord] = []; var favorites: [FavoriteQuery] = []; var pins: [String: [String]]? }
+    private struct Archive: Codable {
+        var history: [QueryRecord] = []
+        var favorites: [FavoriteQuery] = []
+        var pins: [String: [String]]?
+        var panels: PanelLayout?
+        var drafts: [String: RecoverableSQL]?
+    }
+    private var openDrafts: Set<UUID> = []
+    var panels: PanelLayout { archive.panels ?? PanelLayout() }
+    func saveLayout(_ layout: PanelLayout) {
+        guard panels != layout else { return }
+        archive.panels = layout; persist()
+    }
+    func openDraft(_ id: UUID) { openDrafts.insert(id) }
+    func releaseDraft(_ id: UUID) { openDrafts.remove(id) }
+    func availableDrafts(in database: String) -> [RecoverableSQL] {
+        (archive.drafts ?? [:]).values.filter { $0.database == database && !openDrafts.contains($0.id) }.sorted { $0.date > $1.date }
+    }
+    func saveDraft(_ draft: RecoverableSQL) {
+        var drafts = archive.drafts ?? [:]
+        if let old = drafts[draft.id.uuidString], old.sql == draft.sql && old.title == draft.title && old.database == draft.database { return }
+        drafts[draft.id.uuidString] = draft
+        archive.drafts = drafts; persist()
+    }
+    func removeDraft(_ id: UUID) {
+        guard archive.drafts?[id.uuidString] != nil else { return }
+        archive.drafts?.removeValue(forKey: id.uuidString); persist()
+    }
     private var archive = Archive()
     private let file: URL
     private(set) var error: String?
@@ -165,8 +192,14 @@ final class QueryNotebook {
     private func persist() {
         guard readable else { return }
         do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(archive).write(to: file, options: .atomic)
+            let fm = FileManager.default
+            let directory = file.deletingLastPathComponent()
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let temporary = directory.appending(path: "." + UUID().uuidString + ".partial")
+            defer { try? fm.removeItem(at: temporary) }
+            guard fm.createFile(atPath: temporary.path, contents: try JSONEncoder().encode(archive), attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+            if fm.fileExists(atPath: file.path) { _ = try fm.replaceItemAt(file, withItemAt: temporary) }
+            else { try fm.moveItem(at: temporary, to: file) }
             error = nil
         } catch { self.error = error.localizedDescription }
     }

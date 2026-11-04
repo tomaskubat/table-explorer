@@ -62,5 +62,18 @@ final class DataTransferTests: XCTestCase {
         XCTAssertEqual(rows.first { $0["nazev"] as? String == "Olomouc" }?["poznamka"] as? String, "Ukázka")
         XCTAssertTrue(rows.first { $0["nazev"] as? String == "Brno" }?["poznamka"] is NSNull)
         XCTAssertEqual(rows.first { $0["nazev"] as? String == "Graz" }?["poznamka"] as? String, "")
+        XCTAssertTrue(app.buttons["Write Export"].waitForNonExistence(timeout: 5))
+        window.buttons["Export Data"].click()
+        app.popUpButtons["CSV Delimiter"].click(); app.menuItems["Semicolon"].click()
+        app.popUpButtons["CSV Line Ending"].click(); app.menuItems["CRLF"].click()
+        app.checkBoxes["Quote all fields"].click()
+        let csv = directory.appending(path: "cities.csv")
+        app.textFields["Destination File"].replaceText(with: csv.path); app.buttons["Write Export"].click()
+        XCTAssertTrue(app.buttons["Write Export"].waitForNonExistence(timeout: 5))
+        let contents = try String(contentsOf: csv, encoding: .utf8)
+        XCTAssertTrue(contents.hasPrefix(#""id";"nazev";"kod_zeme";"poznamka""# + "\r\n"))
+        XCTAssertTrue(contents.contains(#""Brno";"CZ";\N"# + "\r\n"))
+        XCTAssertTrue(contents.contains(#""Graz";"AT";"""# + "\r\n"))
+        XCTAssertTrue(contents.contains(#""Olomouc";"CZ";"Ukázka""#))
     }
 }

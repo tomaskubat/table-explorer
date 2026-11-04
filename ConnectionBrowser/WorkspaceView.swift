@@ -7,14 +7,16 @@ struct WorkspaceView: View {
     @State private var navigator = "Items"
     @State private var closing: WorkspaceTab?
     @State private var closingSQL: WorkspaceTab?
+    @FocusState private var panelFocus: Workspace.FocusArea?
 
     var body: some View {
         layout
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
         .frame(minWidth: 980, minHeight: 590)
+        .onChange(of: panelFocus) { if let panelFocus { workspace.focusArea = panelFocus } }
         .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
         .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
-            Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true }
+            Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.closeAfterCommit = true; tab.previewShown = true }
             Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
             Button("Keep Editing", role: .cancel) {}
         }
@@ -28,6 +30,7 @@ struct WorkspaceView: View {
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
         .focusedSceneValue(\.activeConnectionTab, workspace.active)
+        .sheet(isPresented: $workspace.recoveryShown) { DraftRecoveryView(workspace: workspace) }
         .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
         .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
         .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
@@ -94,7 +97,7 @@ struct WorkspaceView: View {
                         Picker("Navigator", selection: $navigator) {
                             ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
                         }.pickerStyle(.segmented).labelsHidden().onChange(of: navigator) { search = "" }
-                        TextField(navigator == "Items" ? "Search for item" : "Search queries", text: $search)
+                        TextField(navigator == "Items" ? "Search for item" : "Search queries", text: $search).focused($panelFocus, equals: .items)
                         if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
                         else { ObjectListView(workspace: workspace, search: search) }
                     }.padding(8).frame(minWidth: 175, idealWidth: 190, maxWidth: 250, alignment: .topLeading)
@@ -129,19 +132,20 @@ struct WorkspaceView: View {
                             Text(workspace.log.isEmpty ? "Open a table or run a query to see its SQL." : workspace.log.joined(separator: "\n"))
                                 .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(8).frame(height: 80).accessibilityLabel("SQL Console").accessibilityIdentifier("SQL Console")
+                        }.padding(8).frame(height: 80).focusable().focused($panelFocus, equals: .console).accessibilityLabel("SQL Console").accessibilityIdentifier("SQL Console")
                     }
                 }.frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
                 if workspace.showDetails {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Row Detail").font(.headline).accessibilityIdentifier("row-detail-header")
-                        TextField("Search for field", text: $fieldSearch).accessibilityLabel("Search for field")
+                        TextField("Search for field", text: $fieldSearch).accessibilityLabel("Search for field").focused($panelFocus, equals: .detail)
                         if let tab = workspace.active, !tab.showStructure, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 8) {
                                     let values = tab.displayed.rows[index]
-                                    ForEach(tab.result.columns.indices.filter { fieldSearch.isEmpty || tab.result.columns[$0].localizedCaseInsensitiveContains(fieldSearch) }, id: \.self) { i in
-                                        let name = tab.result.columns[i], value = values[i]
+                                    let fields = Array(zip(tab.result.columns, values).enumerated())
+                                    ForEach(fields.filter { fieldSearch.isEmpty || $0.element.0.localizedCaseInsensitiveContains(fieldSearch) }, id: \.offset) { i, field in
+                                        let (name, value) = field
                                         HStack {
                                             Text(name).font(.caption).foregroundStyle(.secondary)
                                             Spacer()

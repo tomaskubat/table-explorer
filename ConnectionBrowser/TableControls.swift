@@ -3,6 +3,7 @@ import SwiftUI
 struct TableControls: View {
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
+    @FocusState private var editingFilter: Bool
     private func reload() { Task { await workspace.load(tab) } }
 
     var body: some View {
@@ -53,17 +54,24 @@ struct TableControls: View {
                         }.labelsHidden().accessibilityLabel("Filter Operator")
                         if filter.operation != .isNull && filter.operation != .notNull {
                             TextField(filter.operation == .raw ? "SQL predicate" : "Value", text: $filter.value)
-                                .accessibilityIdentifier("Filter Value").onChange(of: filter.value) { filter.typed = nil }
+                                .accessibilityIdentifier("Filter Value").focused($editingFilter).onChange(of: filter.value) { filter.typed = nil }
                         }
+                        Button("Apply condition", systemImage: tab.appliedFilters.contains(filter) ? "checkmark.circle.fill" : "checkmark.circle") {
+                            if let index = tab.appliedFilters.firstIndex(where: { $0.id == filter.id }) { tab.appliedFilters[index] = filter }
+                            else { tab.appliedFilters.append(filter) }
+                            tab.offset = 0; reload()
+                        }.labelStyle(.iconOnly).help("Apply this condition")
                         Button("Remove condition", systemImage: "minus.circle") { tab.filters.removeAll { $0.id == filter.id } }.labelStyle(.iconOnly)
                     }
                 }
                 HStack {
                     Button("Add Condition") { addFilter() }
                     Button("Unset") { tab.filters = []; tab.appliedFilters = []; tab.offset = 0; reload() }
-                    Button("Apply Filters") { tab.appliedFilters = tab.filters; tab.offset = 0; reload() }
-                        .keyboardShortcut(.return, modifiers: .command)
+                    Button("Apply Filters") { Task { await workspace.applyFilters(tab) } }.help("Apply all conditions (⌘Return)")
                 }
+            }.onChange(of: editingFilter) {
+                if editingFilter { workspace.focusArea = .filter }
+                else if workspace.focusArea == .filter { workspace.focusArea = nil }
             }
         }
     }

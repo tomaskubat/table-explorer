@@ -30,7 +30,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
         func attach(to window: NSWindow?) {
             guard let window, window.delegate !== self else { return }
             detach()
-            original = window.delegate; self.window = window; window.delegate = self
+            original = window.delegate; self.window = window; workspace.window = window; window.delegate = self
             // DocumentGroup also installs the standard Save key equivalent. Only
             // intercept the key in this workspace; native documents keep theirs.
             saveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
@@ -43,6 +43,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
         }
         func detach() {
             if let saveMonitor { NSEvent.removeMonitor(saveMonitor); self.saveMonitor = nil }
+            if workspace.window === window { workspace.window = nil }
             if window?.delegate === self { window?.delegate = original }
             window = nil; original = nil
         }

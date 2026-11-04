@@ -4,15 +4,17 @@ import Observation
 
 @MainActor @Observable
 final class WorkspaceTab: Identifiable {
-    let id = UUID()
+    let id: UUID
     var title: String
     let object: DatabaseObject?
     var sql = ""
     var fileURL: URL?
     var savedSQL = ""
+    @ObservationIgnored var draftSave: Task<Void, Never>?
     var unsavedSQL: Bool { object == nil && sql != savedSQL }
     var textSelection = NSRange(location: 0, length: 0)
-    var executions: [(sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
+    var runRequest: UUID?
+    var executions: [(title: String, sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
     var executionIndex = 0
     var lastDuration: TimeInterval? { executions.indices.contains(executionIndex) ? executions[executionIndex].duration : nil }
     func selectExecution(_ index: Int) {
@@ -56,6 +58,7 @@ final class WorkspaceTab: Identifiable {
     var transfer: GridTransfer?
     var cellEditor: CellEdit?
     var previewShown = false
+    var closeAfterCommit = false
     var commitError: String?
     var editHistory: [[RowChange]] = []
 
@@ -146,12 +149,13 @@ final class WorkspaceTab: Identifiable {
     }
     func discard() { changes.removeAll(); editHistory.removeAll(); commitError = nil }
     func undoChange() { if let previous = editHistory.popLast() { changes = previous } }
-    init(title: String, object: DatabaseObject? = nil) { self.title = title; self.object = object }
+    init(id: UUID = UUID(), title: String, object: DatabaseObject? = nil) { self.id = id; self.title = title; self.object = object }
 }
 
 @MainActor @Observable
 final class Workspace: Identifiable {
     let id = UUID()
+    @ObservationIgnored weak var window: NSWindow?
     let profile: ConnectionProfile
     let notebook: QueryNotebook
     let session: DatabaseSession
@@ -167,11 +171,12 @@ final class Workspace: Identifiable {
     var error: String?
     var connected = true
     var reconnecting = false
-    var showItems = true
-    enum FocusArea { case grid, sql }
+    var showItems = true { didSet { panelChanged(.items, visible: showItems) } }
+    enum FocusArea: Hashable { case grid, sql, filter, items, detail, console }
     var focusArea: FocusArea?
-    var showDetails = true
-    var showConsole = true
+    var showDetails = true { didSet { panelChanged(.detail, visible: showDetails) } }
+    var showConsole = true { didSet { panelChanged(.console, visible: showConsole) } }
+    var recoveryShown = false
     var bootstrapReview: [String] = []
     private var offeredBootstrap = false
     var schemaDraft: SchemaDraft?
@@ -191,6 +196,50 @@ final class Workspace: Identifiable {
     init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
         self.profile = profile; self.session = session; self.database = database
+        let layout = notebook.panels
+        showItems = layout.items; showDetails = layout.detail; showConsole = layout.console
+    }
+
+    private func panelChanged(_ area: FocusArea, visible: Bool) {
+        notebook.saveLayout(PanelLayout(items: showItems, detail: showDetails, console: showConsole))
+        guard !visible && focusArea == area else { return }
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, let window, let root = window.contentView, let active else { return }
+            @MainActor func content(in view: NSView) -> NSView? {
+                if view.isHidden { return nil }
+                if active.object == nil, let editor = view as? NSTextView, editor.accessibilityIdentifier() == "SQL Editor" { return editor }
+                if active.object != nil && view is DataGrid.GridTable { return view }
+                for child in view.subviews { if let found = content(in: child) { return found } }
+                return nil
+            }
+            if let view = content(in: root) { window.makeFirstResponder(view) }
+        }
+    }
+
+    func updateRecovery(_ tab: WorkspaceTab) {
+        tab.draftSave?.cancel()
+        tab.draftSave = Task { [weak self, weak tab] in
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            if let self, let tab { self.saveRecovery(tab) }
+        }
+    }
+
+    func saveRecovery(_ tab: WorkspaceTab) {
+        guard tab.object == nil && tabs.contains(where: { $0.id == tab.id }) else { return }
+        if tab.unsavedSQL && !tab.sql.isEmpty && !QueryNotebook.containsCredentials(tab.sql) {
+            notebook.saveDraft(RecoverableSQL(id: tab.id, database: database, title: tab.title, sql: tab.sql, date: Date()))
+        } else { notebook.removeDraft(tab.id) }
+    }
+    func releaseRecovery() {
+        for tab in tabs where tab.object == nil {
+            tab.draftSave?.cancel(); saveRecovery(tab); notebook.releaseDraft(tab.id)
+        }
+    }
+    func recover(_ draft: RecoverableSQL) {
+        guard notebook.availableDrafts(in: database).contains(where: { $0.id == draft.id }) else { return }
+        let tab = WorkspaceTab(id: draft.id, title: draft.title)
+        tab.sql = draft.sql; tabs.append(tab); activeID = tab.id; notebook.openDraft(tab.id)
     }
 
     func offerBootstrap() {
@@ -234,7 +283,7 @@ final class Workspace: Identifiable {
 
     func switchDatabase(to name: String) async throws {
         guard !hasDrafts && !hasRunningTasks else { throw BrowserError("Finish pending changes and queries before switching databases.") }
-        _ = try await session.query("USE " + DatabaseSession.identifier(name))
+        try await session.selectDatabase(name)
         clearDatabaseResults()
         database = name
         await reloadObjects()
@@ -268,11 +317,13 @@ final class Workspace: Identifiable {
         guard let target else { return false }
         try tab.sql.write(to: target, atomically: true, encoding: .utf8)
         tab.fileURL = target; tab.savedSQL = tab.sql; tab.title = target.lastPathComponent
+        tab.draftSave?.cancel(); notebook.removeDraft(tab.id)
         return true
     }
 
     func closeTab(_ tab: WorkspaceTab) {
         guard !tab.busy else { return }
+        tab.draftSave?.cancel(); notebook.removeDraft(tab.id); notebook.releaseDraft(tab.id)
         tabs.removeAll { $0.id == tab.id }
         if activeID == tab.id { activeID = tabs.last?.id }
     }
@@ -327,8 +378,11 @@ final class Workspace: Identifiable {
         tab.busy = true; tab.commitError = nil
         do {
             try await session.commit(tab.changes, object: object, driver: profile.driver)
+            let closeAfterCommit = tab.closeAfterCommit
             tab.discard(); tab.previewShown = false
-            await load(tab)
+            if closeAfterCommit {
+                tab.busy = false; closeTab(tab)
+            } else { await load(tab) }
         } catch { tab.commitError = error.localizedDescription; record(error) }
         tab.busy = false
     }
@@ -337,7 +391,12 @@ final class Workspace: Identifiable {
         let tab = WorkspaceTab(title: file?.lastPathComponent ?? "Query \(nextQueryNumber)")
         nextQueryNumber += 1
         tab.sql = text; tab.savedSQL = text; tab.fileURL = file
+        notebook.openDraft(tab.id)
         tabs.append(tab); activeID = tab.id
+    }
+    func applyFilters(_ tab: WorkspaceTab) async {
+        tab.appliedFilters = tab.filters; tab.offset = 0
+        await load(tab)
     }
     func load(_ tab: WorkspaceTab) async {
         guard let object = tab.object else { return }
@@ -384,20 +443,34 @@ final class Workspace: Identifiable {
         tab.busy = true; tab.stopRequested = false; tab.cancellation = cancellation
         tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
         defer { tab.busy = false; tab.cancellation = nil; tab.stopRequested = false }
-        for sql in statements {
+        for (index, sql) in statements.enumerated() {
             if cancellation.wasRequested { break }
             guard connected else { tab.error = "This workspace is disconnected."; return }
             let start = Date()
-            var result = QueryResult()
+            var results = [QueryResult()]
             var failure: String?
-            do { result = try await session.runUserSQL(sql, cancellation: cancellation, limit: BrowserPreferences.queryLimit) }
-            catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
+            do {
+                let outcome = try await session.runUserSQL(sql, on: database, cancellation: cancellation, limit: BrowserPreferences.queryLimit)
+                if let changed = outcome.changedDatabase {
+                    let accept = !hasDrafts && !transferBusy && !maintenanceBusy && !tabs.contains { $0.id != tab.id && $0.busy }
+                    // DatabaseSession holds subsequent database work until this
+                    // workspace has reconciled the contents of its object tabs.
+                    if accept { clearDatabaseResults(); database = changed }
+                    try await session.finishDatabaseChange(to: changed, accept: accept)
+                    await reloadObjects()
+                }
+                results = outcome.results
+            } catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
             let hidden = QueryNotebook.containsCredentials(sql)
             log.append(hidden ? "Statement containing credentials" : sql)
             if let failure { log.append(hidden ? "Statement failed" : failure) }
             notebook.record(sql: sql, duration: duration, error: failure)
-            tab.executions.append((sql, result, failure, duration)); tab.selectExecution(tab.executions.count - 1)
+            for (part, result) in results.enumerated() {
+                let title = "Statement " + String(index + 1) + (results.count > 1 ? " · Result " + String(part + 1) : "")
+                tab.executions.append((title, sql, result, failure, duration))
+            }
+            tab.selectExecution(tab.executions.count - 1)
             if failure != nil { break }
         }
     }

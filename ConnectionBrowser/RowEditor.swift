@@ -140,9 +140,10 @@ private struct ChangePreview: View {
             if let error = tab.commitError { Text(error).foregroundStyle(.red).accessibilityIdentifier("commitError") }
             HStack {
                 Spacer()
-                Button("Close Preview") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Commit Changes") { Task { await workspace.commit(tab) } }.disabled(tab.busy || !workspace.connected)
+                Button("Close Preview") { tab.closeAfterCommit = false; dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Commit Changes") { Task { await workspace.commit(tab) } }.keyboardShortcut("s").disabled(tab.busy || !workspace.connected)
             }
         }.padding(20).frame(width: 550, height: 280).interactiveDismissDisabled(tab.busy)
+        .onDisappear { tab.closeAfterCommit = false }
     }
 }

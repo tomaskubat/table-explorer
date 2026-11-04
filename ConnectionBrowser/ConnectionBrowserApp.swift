@@ -22,6 +22,7 @@ struct ConnectionBrowserApp: App {
             if let id, let workspace = workspaces.sessions[id] {
                 WorkspaceView(workspace: workspace).modifier(BrowserAppearance())
                     .onDisappear {
+                        workspace.releaseRecovery()
                         workspaces.sessions[id] = nil
                         Task { await workspace.session.close() }
                     }
@@ -55,29 +56,47 @@ private struct WorkspacesView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
+    @State private var previews: [UUID: NSImage] = [:]
+
     var body: some View {
-        VStack(alignment: .leading) {
-            if registry.sessions.isEmpty {
-                ContentUnavailableView("No Open Workspaces", systemImage: "macwindow", description: Text("Open a saved connection to start a session."))
-            } else {
-                List(registry.sessions.values.sorted { $0.profile.name < $1.profile.name }) { workspace in
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
+                ForEach(registry.sessions.values.sorted { $0.profile.name < $1.profile.name }) { workspace in
                     Button {
-                        openWindow(value: workspace.id)
-                        dismissWindow(id: "workspaces")
+                        openWindow(value: workspace.id); dismissWindow(id: "workspaces")
                     } label: {
-                        HStack {
-                            Label(workspace.profile.name + " / " + workspace.database, systemImage: "macwindow")
-                            Spacer()
-                            Text(workspace.connected ? workspace.profile.driver.rawValue : "Disconnected").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Group {
+                                if let preview = previews[workspace.id] { Image(nsImage: preview).resizable().scaledToFit() }
+                                else { Image(systemName: "macwindow").font(.largeTitle) }
+                            }
+                            .frame(maxWidth: .infinity).frame(height: 100)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                            Text(workspace.profile.name).font(.headline)
+                            Text(workspace.database + " · " + (workspace.connected ? workspace.profile.driver.rawValue : "Disconnected")).font(.caption)
                         }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                    .accessibilityLabel(workspace.profile.name + " / " + workspace.database)
+                    }.buttonStyle(.plain).accessibilityLabel(workspace.profile.name + " / " + workspace.database)
                 }
+                Button {
+                    openWindow(id: "connections"); dismissWindow(id: "workspaces")
+                } label: {
+                    VStack {
+                        Image(systemName: "plus").font(.title)
+                        Text("New Workspace")
+                    }.frame(maxWidth: .infinity, minHeight: 135)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                }.buttonStyle(.plain).accessibilityLabel("New Workspace")
+            }.padding(14)
+        }.frame(minWidth: 400, minHeight: 220)
+        .onAppear {
+            previews.removeAll()
+            for workspace in registry.sessions.values {
+                guard let view = workspace.window?.contentView, !view.bounds.isEmpty,
+                      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let image = NSImage(size: view.bounds.size)
+                image.addRepresentation(bitmap); previews[workspace.id] = image
             }
-            HStack {
-                Spacer()
-                Button("Saved Connections") { openWindow(id: "connections") }
-            }.padding(10)
-        }.frame(minWidth: 380, minHeight: 220)
+        }
     }
 }
