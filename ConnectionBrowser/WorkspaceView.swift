@@ -152,9 +152,10 @@ struct WorkspaceView: View {
                                             if let column = tab.schema?.columns.first(where: { $0.name == name }) {
                                                 Text(column.type).font(.caption2).foregroundStyle(.secondary)
                                                 Button("Edit " + name, systemImage: "pencil") {
+                                                    if !tab.hiddenColumns.contains(name) { tab.focusedColumn = name }
                                                     tab.cellEditor = CellEdit(column: name, value: value, draft: tab.editRow(at: index),
                                                         writable: workspace.connected && tab.canEdit(index) && !column.generated, nullable: column.nullable)
-                                                }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                                                }.labelStyle(.iconOnly).buttonStyle(.borderless).accessibilityIdentifier("detail-edit-" + name)
                                             }
                                         }
                                         Text(value.display).textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")

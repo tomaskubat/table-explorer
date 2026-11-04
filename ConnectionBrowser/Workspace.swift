@@ -14,6 +14,7 @@ final class WorkspaceTab: Identifiable {
     var unsavedSQL: Bool { object == nil && sql != savedSQL }
     var textSelection = NSRange(location: 0, length: 0)
     var runRequest: UUID?
+    var variableValues: [String: String] = [:]
     var executions: [(title: String, sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
     var executionIndex = 0
     var lastDuration: TimeInterval? { executions.indices.contains(executionIndex) ? executions[executionIndex].duration : nil }
@@ -31,6 +32,8 @@ final class WorkspaceTab: Identifiable {
     var limit = BrowserPreferences.pageSize
     var selectedRows: Set<Int> = []
     var focusedRow: Int?
+    var focusedColumn: String?
+    @ObservationIgnored weak var grid: DataGrid.GridTable?
     var selected: Int? {
         get { if let focusedRow, selectedRows.contains(focusedRow) { return focusedRow }; return selectedRows.min() }
         set { selectedRows = newValue.map { [$0] } ?? []; focusedRow = newValue }
@@ -437,7 +440,7 @@ final class Workspace: Identifiable {
             }
         }
     }
-    func run(_ statements: [String], on tab: WorkspaceTab) async {
+    func run(_ statements: [String], on tab: WorkspaceTab, templates: [String]? = nil) async {
         guard connected, !tab.busy else { return }
         let cancellation = QueryCancellation()
         tab.busy = true; tab.stopRequested = false; tab.cancellation = cancellation
@@ -462,10 +465,11 @@ final class Workspace: Identifiable {
                 results = outcome.results
             } catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
-            let hidden = QueryNotebook.containsCredentials(sql)
-            log.append(hidden ? "Statement containing credentials" : sql)
-            if let failure { log.append(hidden ? "Statement failed" : failure) }
-            notebook.record(sql: sql, duration: duration, error: failure)
+            let recorded = templates?[index] ?? sql
+            let hidden = QueryNotebook.containsCredentials(sql) || QueryNotebook.containsCredentials(recorded)
+            log.append(hidden ? "Statement containing credentials" : recorded)
+            if let failure { log.append(hidden || templates != nil ? "Statement failed" : failure) }
+            notebook.record(sql: recorded, duration: duration, error: templates == nil ? failure : failure.map { _ in "Statement failed" })
             for (part, result) in results.enumerated() {
                 let title = "Statement " + String(index + 1) + (results.count > 1 ? " · Result " + String(part + 1) : "")
                 tab.executions.append((title, sql, result, failure, duration))

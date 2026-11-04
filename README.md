@@ -30,4 +30,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 
 File → Open SQL File opens a document from Saved Connections or a query tab in the active workspace. ⌘S saves the text in an SQL editor. In a data tab it opens the pending-changes preview. Window → Show Workspaces switches between open sessions.
 
+Run Options → Enable Query Parameters turns on SQL expressions in the editor. The default placeholder is `:name`. Repeated names share a value, and each positional `?` has its own value. Review SQL shows the expanded command before execution. Values stay in the current tab. History and favorites keep the template.
+
+A click in the grid selects a row and marks the active column. Closing the cell editor returns to that cell. Return starts inline editing when the column is writable.
+
 After reconnecting, File → Recover SQL Draft opens locally recovered text for the same profile and database. Running the text requires an explicit command. Discarding or saving a tab clears its recovery copy. Passwords for MariaDB and SSH use separate Keychain entries. Profile exports omit those passwords and any bootstrap script.

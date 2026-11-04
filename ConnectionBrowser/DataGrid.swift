@@ -15,6 +15,7 @@ struct DataGrid: NSViewRepresentable {
         scroll.autohidesScrollers = true; scroll.borderType = .noBorder
         let table = GridTable()
         table.handler = context.coordinator
+        tab.grid = table
         table.delegate = context.coordinator; table.dataSource = context.coordinator
         table.allowsMultipleSelection = true; table.allowsEmptySelection = true
         table.usesAlternatingRowBackgroundColors = true; table.rowHeight = 23
@@ -44,8 +45,12 @@ struct DataGrid: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             let point = convert(event.locationInWindow, from: nil)
             let r = row(at: point), c = column(at: point)
-            if r >= 0 { handler?.tab.focusedRow = r }
             super.mouseDown(with: event)
+            if r >= 0, tableColumns.indices.contains(c) {
+                handler?.tab.focusedRow = r
+                handler?.tab.focusedColumn = tableColumns[c].title
+                needsDisplay = true
+            }
             if event.clickCount == 2 && r >= 0 && c >= 0 { handler?.edit(in: self, row: r, column: c) }
         }
         override func rightMouseDown(with event: NSEvent) {
@@ -53,7 +58,28 @@ struct DataGrid: NSViewRepresentable {
             guard let menu = handler?.menu(row: row(at: point), column: column(at: point)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
+        func restoreCellFocus() {
+            guard let handler, let row = handler.tab.selected, row < numberOfRows else { return }
+            scrollRowToVisible(row)
+            if let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) { scrollColumnToVisible(column) }
+            window?.makeFirstResponder(self)
+            needsDisplay = true
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            guard let handler, let row = handler.tab.selected, row < numberOfRows,
+                  let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) else { return }
+            let rect = frameOfCell(atColumn: column, row: row).insetBy(dx: 1.5, dy: 1.5)
+            if rect.intersects(dirtyRect) {
+                NSColor.keyboardFocusIndicatorColor.setStroke()
+                let path = NSBezierPath(rect: rect); path.lineWidth = 2; path.stroke()
+            }
+        }
         override func keyDown(with event: NSEvent) {
+            if event.keyCode == 36, let handler, let row = handler.tab.selected,
+               let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) {
+                handler.edit(in: self, row: row, column: column); return
+            }
             if event.charactersIgnoringModifiers == " ", event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
                 handler?.workspace.showDetails.toggle()
             } else { super.keyDown(with: event) }
@@ -211,6 +237,8 @@ struct DataGrid: NSViewRepresentable {
             let writable = workspace.connected && tab.canEdit(row) && metadata?.generated == false
             let menu = NSMenu(); menu.autoenablesItems = false
             item("Quick Look Editor", in: menu) {
+                if self.tab.selectedRows.isEmpty { self.tab.selected = row }
+                if self.tab.selectedRows.contains(row) { self.tab.focusedRow = row; self.tab.focusedColumn = field.name }
                 self.tab.cellEditor = CellEdit(column: field.name, value: value, draft: self.tab.editRow(at: row), writable: writable, nullable: metadata?.nullable == true)
             }
             item("Refresh", in: menu, enabled: workspace.connected) { Task { await self.workspace.load(self.tab) } }

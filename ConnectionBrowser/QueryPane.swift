@@ -5,6 +5,10 @@ struct QueryPane: View {
     @Bindable var tab: WorkspaceTab
     @State private var review: [String] = []
     @State private var favoriteSheet = false
+    @State private var variables: QueryVariables?
+    @AppStorage("enableQueryVariables", store: BrowserPreferences.defaults) private var enableVariables = false
+    @AppStorage("variableFormat", store: BrowserPreferences.defaults) private var variableFormat = VariableFormat.colon
+    @AppStorage("variablesInsideStrings", store: BrowserPreferences.defaults) private var insideStrings = false
     @State private var favoriteName = ""
     @State private var keywords = ""
     @AppStorage("queryFontSize", store: BrowserPreferences.defaults) private var fontSize = 13.0
@@ -33,6 +37,12 @@ struct QueryPane: View {
             Menu("Run Options") {
                 Button("Run Selection") { run(.selection) }.disabled(tab.textSelection.length == 0)
                 Button("Run Script") { run(.script) }
+                Divider()
+                Toggle("Enable Query Parameters", isOn: $enableVariables)
+                Picker("Parameter Format", selection: $variableFormat) {
+                    ForEach(VariableFormat.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Toggle("Find Parameters Inside Quoted Strings", isOn: $insideStrings)
             }
             Button("Save Favorite") { favoriteSheet = true }
         }.disabled(tab.busy || !workspace.connected || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -66,6 +76,7 @@ struct QueryPane: View {
                     }
                 }.padding(20).frame(width: 500, height: 300)
             }
+            .sheet(item: $variables) { VariablesView(query: $0, workspace: workspace, tab: tab) }
             .sheet(isPresented: $favoriteSheet) {
                 VStack(alignment: .leading) {
                     Text("Save Favorite").font(.title2)
@@ -91,6 +102,10 @@ struct QueryPane: View {
     private func run(_ scope: SQLScope) {
         let commands = SQLDocument.commands(text: tab.sql, selection: tab.textSelection, scope: scope, driver: workspace.profile.driver)
         guard !commands.isEmpty else { return }
+        if enableVariables {
+            let query = QueryVariables(commands, format: variableFormat, driver: workspace.profile.driver, insideStrings: insideStrings)
+            if !query.names.isEmpty { variables = query; return }
+        }
         if workspace.profile.production || safety == "Review every statement" || (safety != "Run immediately" && commands.contains(where: SQLDocument.requiresConfirmation)) { review = commands }
         else { Task { await workspace.run(commands, on: tab) } }
     }

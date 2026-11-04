@@ -58,8 +58,16 @@ final class MariaDBConnectionTests: XCTestCase {
         screenshot.name = "MariaDB filtered table and row detail"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        workspace.buttons["Columns"].click()
+        app.checkBoxes["note"].click()
+        app.buttons["Done"].click()
+        XCTAssertFalse(workspace.staticTexts["grid-0-note"].exists)
+        XCTAssertEqual(selectedName.value as? String, "Czechia")
         workspace.buttons["Unset"].click()
         XCTAssertTrue(workspace.staticTexts["Austria"].waitForExistence(timeout: 5))
+        workspace.buttons["Columns"].click()
+        app.buttons["Show All"].click()
+        app.buttons["Done"].click()
 
         let marker = "Verified " + UUID().uuidString.prefix(8)
         workspace.staticTexts["Czechia"].firstMatch.click()

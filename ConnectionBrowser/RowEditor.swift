@@ -19,7 +19,7 @@ struct RowActions: View {
         .sheet(item: $tab.editor) { draft in
             if let schema = tab.schema { RowEditor(draft: draft, schema: schema) { tab.stage($0) } }
         }
-        .sheet(item: $tab.cellEditor) { target in
+        .sheet(item: $tab.cellEditor, onDismiss: { tab.grid?.restoreCellFocus() }) { target in
             CellEditor(target: target, tab: tab)
         }
         .sheet(isPresented: $tab.previewShown) { ChangePreview(workspace: workspace, tab: tab) }
