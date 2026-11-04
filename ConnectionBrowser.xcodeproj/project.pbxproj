@@ -149,6 +149,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
+				INFOPLIST_FILE = Configuration/AppInfo.plist;
 				HEADER_SEARCH_PATHS = "/opt/homebrew/opt/mariadb-connector-c/include/mariadb";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Drivers";
 				LIBRARY_SEARCH_PATHS = "$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)";
@@ -167,6 +168,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
+				INFOPLIST_FILE = Configuration/AppInfo.plist;
 				HEADER_SEARCH_PATHS = "/opt/homebrew/opt/mariadb-connector-c/include/mariadb";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Drivers";
 				LIBRARY_SEARCH_PATHS = "$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)";

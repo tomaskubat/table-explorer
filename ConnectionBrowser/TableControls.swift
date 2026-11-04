@@ -7,19 +7,22 @@ struct TableControls: View {
 
     var body: some View {
         HStack {
-            Button("Filters") {
-                tab.filterEditorVisible.toggle()
-                if tab.filters.isEmpty { addFilter() }
-            }.keyboardShortcut("f")
-            Menu("Columns") {
-                ForEach(tab.result.columns, id: \.self) { column in
-                    Toggle(column, isOn: Binding(get: { !tab.hiddenColumns.contains(column) }, set: { visible in
-                        if visible { tab.hiddenColumns.remove(column) } else { tab.hiddenColumns.insert(column) }
-                    }))
+            Button("Filters") { tab.toggleFilters() }.help("Show filters (⌘F)")
+            Button("Columns") { tab.columnsShown.toggle() }.help("Choose visible columns (⌘⌥F)")
+                .popover(isPresented: $tab.columnsShown) {
+                    ScrollView {
+                        VStack(alignment: .leading) {
+                            ForEach(tab.result.columns, id: \.self) { column in
+                                Toggle(column, isOn: Binding(get: { !tab.hiddenColumns.contains(column) }, set: { visible in
+                                    if visible { tab.hiddenColumns.remove(column) } else { tab.hiddenColumns.insert(column) }
+                                }))
+                            }
+                            Divider()
+                            Button("Show All") { tab.hiddenColumns.removeAll() }
+                            Button("Done") { tab.columnsShown = false }.keyboardShortcut(.cancelAction)
+                        }.padding(12)
+                    }.frame(width: 180, height: min(310, CGFloat(tab.result.columns.count) * 25 + 100))
                 }
-                Divider()
-                Button("Show All") { tab.hiddenColumns.removeAll() }
-            }
             Menu("Sort") {
                 ForEach(tab.result.columns, id: \.self) { column in
                     Menu(column) {

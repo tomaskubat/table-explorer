@@ -6,8 +6,48 @@ struct WorkspaceView: View {
     @State private var fieldSearch = ""
     @State private var navigator = "Items"
     @State private var closing: WorkspaceTab?
+    @State private var closingSQL: WorkspaceTab?
 
     var body: some View {
+        layout
+        .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
+        .frame(minWidth: 980, minHeight: 590)
+        .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
+        .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
+            Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true }
+            Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
+            Button("Keep Editing", role: .cancel) {}
+        }
+        .confirmationDialog("Save changes to this SQL tab?", isPresented: Binding(get: { closingSQL != nil }, set: { if !$0 { closingSQL = nil } }), presenting: closingSQL) { tab in
+            Button("Save and Close") {
+                do { if try workspace.saveSQL(tab) { workspace.closeTab(tab) } }
+                catch { workspace.error = error.localizedDescription }
+            }
+            Button("Discard and Close", role: .destructive) { workspace.closeTab(tab) }
+            Button("Keep Editing", role: .cancel) {}
+        }
+        .focusedSceneValue(\.connectionWorkspace, workspace)
+        .focusedSceneValue(\.activeConnectionTab, workspace.active)
+        .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
+        .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
+        .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
+        .sheet(isPresented: $workspace.csvImportShown) { ImportCSVView(workspace: workspace, tab: workspace.active) }
+        .sheet(item: $workspace.maintenance) { action in MaintenanceView(workspace: workspace, action: action) }
+        .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
+        .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
+        .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }
+        .toolbar {
+            if workspace.profile.driver == .mariaDB {
+                Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
+            }
+            Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }
+            Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
+            Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
+            Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
+        }
+        .task { await workspace.reloadObjects() }
+    }
+    private var layout: some View {
         VStack(spacing: 0) {
             if !workspace.connected {
                 HStack {
@@ -91,36 +131,12 @@ struct WorkspaceView: View {
                 }
             }
         }
-        .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
-        .frame(minWidth: 980, minHeight: 590)
-        .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
-        .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
-            Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true }
-            Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
-            Button("Keep Editing", role: .cancel) {}
-        }
-        .focusedSceneValue(\.connectionWorkspace, workspace)
-        .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
-        .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
-        .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
-        .sheet(isPresented: $workspace.csvImportShown) { ImportCSVView(workspace: workspace, tab: workspace.active) }
-        .sheet(item: $workspace.maintenance) { action in MaintenanceView(workspace: workspace, action: action) }
-        .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
-        .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
-        .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }
-        .toolbar {
-            if workspace.profile.driver == .mariaDB {
-                Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
-            }
-            Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }
-            Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
-            Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
-            Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
-        }
-        .task { await workspace.reloadObjects() }
     }
+
     private func requestClose(_ tab: WorkspaceTab) {
-        if tab.changes.isEmpty { workspace.closeTab(tab) } else { closing = tab }
+        if !tab.changes.isEmpty { closing = tab }
+        else if tab.unsavedSQL { closingSQL = tab }
+        else { workspace.closeTab(tab) }
     }
 }
 

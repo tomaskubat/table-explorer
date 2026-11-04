@@ -34,6 +34,50 @@ struct ConnectionBrowserApp: App {
         .restorationBehavior(.disabled)
         .commands { WorkspaceCommands() }
 
+        DocumentGroup(newDocument: SQLFileDocument()) { document in
+            SQLFileView(file: document.$document, registry: workspaces)
+        }
+        .defaultLaunchBehavior(.suppressed)
+
+        Window("Workspaces", id: "workspaces") {
+            WorkspacesView(registry: workspaces).modifier(BrowserAppearance())
+        }
+        .defaultSize(width: 480, height: 300)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+
         Settings { PreferencesView(library: library) }
+    }
+}
+
+private struct WorkspacesView: View {
+    let registry: WorkspaceRegistry
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            if registry.sessions.isEmpty {
+                ContentUnavailableView("No Open Workspaces", systemImage: "macwindow", description: Text("Open a saved connection to start a session."))
+            } else {
+                List(registry.sessions.values.sorted { $0.profile.name < $1.profile.name }) { workspace in
+                    Button {
+                        openWindow(value: workspace.id)
+                        dismissWindow(id: "workspaces")
+                    } label: {
+                        HStack {
+                            Label(workspace.profile.name + " / " + workspace.database, systemImage: "macwindow")
+                            Spacer()
+                            Text(workspace.connected ? workspace.profile.driver.rawValue : "Disconnected").foregroundStyle(.secondary)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    .accessibilityLabel(workspace.profile.name + " / " + workspace.database)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Saved Connections") { openWindow(id: "connections") }
+            }.padding(10)
+        }.frame(minWidth: 380, minHeight: 220)
     }
 }

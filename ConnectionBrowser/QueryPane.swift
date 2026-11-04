@@ -21,7 +21,7 @@ struct QueryPane: View {
             Spacer()
             Text(position).monospacedDigit()
         }.font(.caption)
-        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize, highlighting: highlight, indent: indent) { focused in
+        SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize, highlighting: highlight, indent: indent, driver: workspace.profile.driver, objectNames: workspace.objects.map(\.name)) { focused in
             if focused { workspace.focusArea = .sql } else if workspace.focusArea == .sql { workspace.focusArea = nil }
         }
             .frame(minHeight: 78, idealHeight: 130, maxHeight: 200)

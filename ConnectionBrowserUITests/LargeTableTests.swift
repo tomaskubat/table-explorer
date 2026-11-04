@@ -23,6 +23,12 @@ final class LargeTableTests: XCTestCase {
         let status = window.staticTexts.matching(NSPredicate(format: "value MATCHES %@", "300 of 1[^0-9]?000[^0-9]?000 rows")).firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 8), window.debugDescription)
         XCTAssertTrue(window.staticTexts["row-0000001"].exists)
+        window.staticTexts["row-0000001"].click()
+        window.typeKey(.rightArrow, modifierFlags: .command)
+        XCTAssertTrue(window.staticTexts["row-0000301"].waitForExistence(timeout: 6))
+        window.staticTexts["row-0000301"].click()
+        window.typeKey(.leftArrow, modifierFlags: .command)
+        XCTAssertTrue(window.staticTexts["row-0000001"].waitForExistence(timeout: 6))
         window.buttons["Next Page"].click()
         XCTAssertTrue(window.staticTexts["row-0000301"].waitForExistence(timeout: 6))
         XCTAssertFalse(window.staticTexts["row-0000001"].exists)

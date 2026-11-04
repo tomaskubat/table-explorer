@@ -27,6 +27,12 @@ final class GridInteractionTests: XCTestCase {
         let kosice = window.staticTexts["grid-1-nazev"]
         XCTAssertTrue(brno.waitForExistence(timeout: 5))
         brno.click()
+        app.typeKey("f", modifierFlags: [.command, .option])
+        let keyColumn = app.checkBoxes["id"]
+        XCTAssertTrue(keyColumn.waitForExistence(timeout: 4))
+        keyColumn.click(); app.buttons["Done"].click()
+        XCTAssertFalse(window.staticTexts["grid-0-id"].exists)
+        brno.click()
         app.menuBars.menuBarItems["Edit"].click()
         XCTAssertTrue(app.menuItems["Add Row"].isEnabled)
         XCTAssertFalse(app.menuItems["Toggle Line Comment"].isEnabled)
@@ -34,7 +40,7 @@ final class GridInteractionTests: XCTestCase {
         XCUIElement.perform(withKeyModifiers: .command) { kosice.click() }
         XCTAssertTrue(window.staticTexts["2 rows selected"].exists)
         kosice.rightClick()
-        app.menuItems["Duplicate"].click()
+        app.menus.containing(.menuItem, identifier: "Copy Cell Value").menuItems["Duplicate"].firstMatch.click()
         window.buttons["Preview Changes"].click()
         let preview = app.staticTexts["changePreviewSQL"].value as? String ?? ""
         XCTAssertEqual(preview.components(separatedBy: "INSERT INTO").count - 1, 2)

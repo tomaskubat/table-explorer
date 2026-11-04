@@ -102,7 +102,9 @@ struct PreferencesView: View {
         ("Open Anything", "⌘P", "Workspace"), ("SQL Console", "⇧⌘C", "Workspace"),
         ("Add Row", "⌘I", "Data grid"), ("Duplicate Rows", "⌘D", "Data grid"),
         ("Row Detail", "Space", "Data grid"), ("Run Current", "⌘Return", "SQL editor"),
-        ("Toggle Line Comment", "⌘/", "SQL editor")
+        ("Toggle Line Comment", "⌘/", "SQL editor"), ("Complete SQL", "⌥Esc", "SQL editor"),
+        ("Filters / Columns", "⌘F / ⌘⌥F", "Data grid"), ("Page back / forward", "⌘← / ⌘→", "Data grid"),
+        ("Preview changes", "⇧⌘P", "Data tab"), ("Save / Commit", "⌘S", "Active tab")
     ]
     private func changeLocation(_ folder: URL) {
         do { try library.useDirectory(folder); locationError = nil }

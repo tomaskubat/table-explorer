@@ -22,6 +22,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSWindowDelegate {
         let workspace: Workspace
         private weak var window: NSWindow?
+        private var saveMonitor: Any?
         // AppKit dispatches window delegate callbacks on the main thread. The
         // Objective-C forwarding hooks themselves have no isolation annotations.
         nonisolated(unsafe) private weak var original: (any NSWindowDelegate)?
@@ -30,8 +31,18 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
             guard let window, window.delegate !== self else { return }
             detach()
             original = window.delegate; self.window = window; window.delegate = self
+            // DocumentGroup also installs the standard Save key equivalent. Only
+            // intercept the key in this workspace; native documents keep theirs.
+            saveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
+                guard let self, let window, window.isKeyWindow, window.attachedSheet == nil,
+                      event.window === window, event.charactersIgnoringModifiers?.lowercased() == "s",
+                      event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command else { return event }
+                self.workspace.saveActiveTab()
+                return nil
+            }
         }
         func detach() {
+            if let saveMonitor { NSEvent.removeMonitor(saveMonitor); self.saveMonitor = nil }
             if window?.delegate === self { window?.delegate = original }
             window = nil; original = nil
         }
@@ -45,7 +56,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
         }
 
         func windowShouldClose(_ sender: NSWindow) -> Bool {
-            guard workspace.hasDrafts || workspace.hasRunningTasks else {
+            guard workspace.hasDrafts || !workspace.unsavedQueries.isEmpty || workspace.hasRunningTasks else {
                 return original?.windowShouldClose?(sender) ?? true
             }
             guard sender.attachedSheet == nil else { return false }
@@ -55,6 +66,23 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
                 alert.informativeText = "Wait for the operation to finish before closing this workspace."
                 alert.addButton(withTitle: "Keep Open")
                 alert.beginSheetModal(for: sender)
+            } else if !workspace.hasDrafts {
+                alert.messageText = "Save SQL changes before closing?"
+                alert.informativeText = workspace.unsavedQueries.map(\.title).joined(separator: ", ")
+                alert.addButton(withTitle: "Keep Editing")
+                alert.addButton(withTitle: "Save and Close")
+                alert.addButton(withTitle: "Discard and Close")
+                alert.beginSheetModal(for: sender) { [weak self, weak sender] choice in
+                    guard let self, choice != .alertFirstButtonReturn else { return }
+                    do {
+                        for tab in self.workspace.unsavedQueries {
+                            if choice == .alertSecondButtonReturn {
+                                guard try self.workspace.saveSQL(tab) else { return }
+                            } else { tab.savedSQL = tab.sql }
+                        }
+                        sender?.performClose(nil)
+                    } catch { self.workspace.error = error.localizedDescription }
+                }
             } else {
                 alert.messageText = "Close with pending changes?"
                 alert.informativeText = "Review the SQL before committing, or discard the drafts in this workspace."

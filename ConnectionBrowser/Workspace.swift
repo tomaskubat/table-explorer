@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -7,6 +8,9 @@ final class WorkspaceTab: Identifiable {
     var title: String
     let object: DatabaseObject?
     var sql = ""
+    var fileURL: URL?
+    var savedSQL = ""
+    var unsavedSQL: Bool { object == nil && sql != savedSQL }
     var textSelection = NSRange(location: 0, length: 0)
     var executions: [(sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
     var executionIndex = 0
@@ -31,6 +35,11 @@ final class WorkspaceTab: Identifiable {
     }
     var totalCount = 0
     var filterEditorVisible = false
+    var columnsShown = false
+    func toggleFilters() {
+        filterEditorVisible.toggle()
+        if filters.isEmpty, let column = result.columns.first { filters.append(ColumnFilter(column: column)) }
+    }
     var filters: [ColumnFilter] = []
     var appliedFilters: [ColumnFilter] = []
     var hiddenColumns: Set<String> = []
@@ -151,6 +160,7 @@ final class Workspace: Identifiable {
     private let sshPassword: String
     var objects: [DatabaseObject] = []
     var tabs: [WorkspaceTab] = []
+    private var nextQueryNumber = 1
     var activeID: UUID?
     var active: WorkspaceTab? { tabs.first { $0.id == activeID } }
     var log: [String] = []
@@ -164,14 +174,15 @@ final class Workspace: Identifiable {
     var showConsole = true
     var schemaDraft: SchemaDraft?
     var serverTool: ServerTool?
-    var overviewShown = false
-    var operation: ObjectOperationTarget?
     var maintenance: MaintenanceAction?
     var maintenanceBusy = false
     var csvImportShown = false
     var transferBusy = false
+    var overviewShown = false
+    var operation: ObjectOperationTarget?
     var objectSearchShown = false
     var databaseSelectorShown = false
+    var unsavedQueries: [WorkspaceTab] { tabs.filter(\.unsavedSQL) }
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
     var hasRunningTasks: Bool { maintenanceBusy || transferBusy || tabs.contains { $0.busy } }
 
@@ -212,6 +223,30 @@ final class Workspace: Identifiable {
         tabs.removeAll { $0.object != nil }
         for tab in tabs { tab.result = QueryResult(); tab.executions = []; tab.error = nil; tab.selected = nil }
         if !tabs.contains(where: { $0.id == activeID }) { activeID = tabs.last?.id }
+    }
+
+    func saveActiveTab() {
+        guard let tab = active else { return }
+        if tab.object == nil {
+            do { try saveSQL(tab) } catch { self.error = error.localizedDescription }
+        } else if connected && !tab.changes.isEmpty {
+            tab.previewShown = true
+        }
+    }
+
+    @discardableResult func saveSQL(_ tab: WorkspaceTab, saveAs: Bool = false) throws -> Bool {
+        guard tab.object == nil else { return false }
+        var target = tab.fileURL
+        if saveAs || target == nil {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.connectionSQL]; panel.nameFieldStringValue = tab.title + ".sql"
+            guard panel.runModal() == .OK, let url = panel.url else { return false }
+            target = url
+        }
+        guard let target else { return false }
+        try tab.sql.write(to: target, atomically: true, encoding: .utf8)
+        tab.fileURL = target; tab.savedSQL = tab.sql; tab.title = target.lastPathComponent
+        return true
     }
 
     func closeTab(_ tab: WorkspaceTab) {
@@ -276,9 +311,10 @@ final class Workspace: Identifiable {
         tab.busy = false
     }
 
-    func newQuery(text: String = "") {
-        let tab = WorkspaceTab(title: "Query \(tabs.filter { $0.object == nil }.count + 1)")
-        tab.sql = text
+    func newQuery(text: String = "", file: URL? = nil) {
+        let tab = WorkspaceTab(title: file?.lastPathComponent ?? "Query \(nextQueryNumber)")
+        nextQueryNumber += 1
+        tab.sql = text; tab.savedSQL = text; tab.fileURL = file
         tabs.append(tab); activeID = tab.id
     }
     func load(_ tab: WorkspaceTab) async {

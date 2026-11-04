@@ -11,7 +11,11 @@ final class PreferencesTests: XCTestCase {
         let app = XCUIApplication()
         defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
         app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path; app.launch()
+        XCTAssertTrue(app.windows["Saved Connections"].waitForExistence(timeout: 5))
         app.typeKey(",", modifierFlags: .command)
+        let general = app.descendants(matching: .any).matching(identifier: "General").firstMatch
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        general.click()
         let pageSize = app.popUpButtons["Default Page Size"]
         XCTAssertTrue(pageSize.waitForExistence(timeout: 5))
         pageSize.click(); app.menuItems["25"].click()
