@@ -5,15 +5,23 @@ cd "$(dirname "$0")/.."
 die() { echo "$*" >&2; exit 1; }
 mode=${1:-}
 input=${2:-}
-version=${input#v}
-[[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "Specify VERSION=X.Y.Z (for example VERSION=0.1.1)."
-tag="v$version"
 repo=tomaskubat/table-explorer
 local_marker='Publish from local Mac'
-out="$PWD/.build/distribution/$tag"
-archive="TableExplorer-$version-arm64.zip"
 key="$PWD/Configuration/sparkle-public-key.txt"
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
+
+next_patch_version() {
+    {
+        git for-each-ref --format='%(refname)' refs/tags &&
+        git ls-remote --tags --refs origin 'v*' | cut -f2
+    } | python3 -c '
+import re, sys
+stable = re.compile(r"refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+versions = (tuple(map(int, m.groups())) for line in sys.stdin if (m := stable.fullmatch(line.rstrip())))
+major, minor, patch = max(versions, default=(0, 0, 0))
+print(f"{major}.{minor}.{patch + 1}")
+'
+}
 
 # Also identifies a draft left by an interrupted upload. Public releases are immutable here.
 release_state() {
@@ -83,17 +91,27 @@ publish() {
     verify_public
 }
 
+if [[ $mode == local ]]; then
+    clean_main
+    case "$(git remote get-url --push origin)" in
+        "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git"|"ssh://git@github.com/$repo.git") ;;
+        *) die "origin must point to $repo." ;;
+    esac
+    if [[ -z $input ]]; then input=$(next_patch_version); fi
+fi
+version=${input#v}
+[[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "Specify VERSION=X.Y.Z (for example VERSION=0.1.1)."
+tag="v$version"
+out="$PWD/.build/distribution/$tag"
+archive="TableExplorer-$version-arm64.zip"
+
 case "$mode" in
     prepare) prepare ;;
     verify) verify_public ;;
     check-version) release_state >/dev/null ;;
     publish-ci) publish ;;
     local)
-        clean_main
-        case "$(git remote get-url --push origin)" in
-            "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git"|"ssh://git@github.com/$repo.git") ;;
-            *) die "origin must point to $repo." ;;
-        esac
+        echo "Releasing $tag (to retry this version, use make release VERSION=$version)."
         release_state >/dev/null
         head=$(git rev-parse HEAD)
         git fetch --quiet --no-tags origin refs/heads/main

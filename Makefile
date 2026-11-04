@@ -3,7 +3,8 @@ export VERSION
 
 .PHONY: help release release-check release-verify
 help:
-	@echo 'make release VERSION=X.Y.Z         Test, sign and publish from this Mac'
+	@echo 'make release                       Publish the next patch after the highest local or origin vX.Y.Z tag'
+	@echo 'make release VERSION=X.Y.Z         Publish a specific version from this Mac'
 	@echo 'make release-check VERSION=X.Y.Z   Test and sign locally without publishing'
 	@echo 'make release-verify VERSION=X.Y.Z  Verify the current public update'
 
