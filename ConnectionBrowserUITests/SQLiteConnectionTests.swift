@@ -22,10 +22,7 @@ final class SQLiteConnectionTests: XCTestCase {
         XCTAssertTrue(group.waitForExistence(timeout: 5))
         group.click()
 
-        app.buttons["New Connection"].click()
-        let sqlite = app.radioButtons["SQLite"]
-        XCTAssertTrue(sqlite.waitForExistence(timeout: 5))
-        sqlite.click()
+        app.newProfile(driver: "SQLite")
         app.textFields["Connection Name"].replaceText(with: "Cities")
         let path = app.textFields["Database File"]
         path.replaceText(with: file.path + ".missing")

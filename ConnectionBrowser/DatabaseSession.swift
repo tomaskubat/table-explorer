@@ -1,5 +1,6 @@
 import CMariaDB
 import Foundation
+import Darwin
 import SQLite3
 
 enum SQLValue: Hashable, Sendable {
@@ -196,6 +197,20 @@ actor DatabaseSession {
                 return URL(filePath: profile.filePath).lastPathComponent
             }
         } catch { close(); throw error }
+    }
+
+    static func createSQLite(at path: String) throws {
+        let fd = Darwin.open(path, O_CREAT | O_EXCL | O_RDWR, mode_t(0o600))
+        guard fd >= 0 else { throw BrowserError("Could not create the new file: " + String(cString: strerror(errno))) }
+        defer { Darwin.close(fd) }
+        do {
+            let handle = try SQLiteHandle(path: path)
+            _ = try handle.query("PRAGMA user_version=0", limit: 0)
+        } catch {
+            var created = stat(), current = stat()
+            if fstat(fd, &created) == 0 && lstat(path, &current) == 0 && created.st_dev == current.st_dev && created.st_ino == current.st_ino { _ = unlink(path) }
+            throw error
+        }
     }
 
     func checkExportDestination(_ destination: URL) throws {

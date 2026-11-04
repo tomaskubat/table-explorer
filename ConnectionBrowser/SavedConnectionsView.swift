@@ -1,9 +1,11 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum LibraryEditor: Identifiable {
-    case group(ConnectionGroup), profile(ConnectionProfile, UUID)
+    case group(ConnectionGroup), profile(ConnectionProfile, UUID), choose(UUID)
     var id: UUID {
         switch self {
+        case .choose(let id): id
         case .group(let group): group.id
         case .profile(let profile, _): profile.id
         }
@@ -49,12 +51,20 @@ struct SavedConnectionsView: View {
                         .disabled(library.groups.isEmpty)
                     Button("New Group", systemImage: "folder.badge.plus") { editor = .group(ConnectionGroup(name: "")) }
                     Spacer()
+                    Menu("Library", systemImage: "ellipsis.circle") {
+                        Button("Import Connections…") { importProfiles() }
+                        Button("Export All Connections…") { export(library.groups) }
+                    }.menuStyle(.borderlessButton).fixedSize()
                 }.padding(8)
             }
         }
         .frame(minWidth: 560, minHeight: 300)
         .sheet(item: $editor) { editor in
             switch editor {
+            case .choose(let group):
+                DriverChooser(library: library, groupID: group) { profile, session, database, password in
+                    showWorkspace(profile, session: session, database: database, password: password)
+                }
             case .group(let group): GroupEditor(library: library, group: group)
             case .profile(let profile, let group):
                 ProfileEditor(library: library, profile: profile, groupID: group) { connection, session, database, password in
@@ -85,7 +95,7 @@ struct SavedConnectionsView: View {
         selection.flatMap { id in library.groups.first(where: { $0.id == id })?.id ?? findProfile(id)?.1 } ?? library.groups.first?.id
     }
     private func newProfile(in group: UUID?) {
-        if let group { editor = .profile(ConnectionProfile(), group) }
+        if let group { editor = .choose(group) }
     }
     @ViewBuilder private func libraryMenu(_ id: UUID?) -> some View {
         let found = id.flatMap { findProfile($0) }
@@ -119,17 +129,29 @@ struct SavedConnectionsView: View {
         }.disabled(found == nil)
         Button("Copy as URL") {
             if let (p, _) = found {
-                var parts = URLComponents()
-                parts.scheme = p.driver == .mariaDB ? "mariadb" : "file"
-                if p.driver == .mariaDB {
-                    parts.host = p.host; parts.port = Int(p.port); parts.user = p.user
-                    parts.path = "/" + p.database
-                } else { parts.path = p.filePath }
-                if let url = parts.url { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
+                if let url = ProfileAddress.url(p) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
             }
-        }.disabled(found == nil || found?.0.usesSocket == true)
+        }.disabled(found == nil)
+        Menu("Export Connections") {
+            Button("All Groups…") { export(library.groups) }
+            if let group { Button("This Group…") { export([group]) } }
+            if let (p, g) = found, let parent = library.groups.first(where: { $0.id == g }) {
+                Button("This Connection…") { export([ConnectionGroup(name: parent.name, connections: [p])]) }
+            }
+        }
+        Button("Import Connections…") { importProfiles() }
         Divider()
         Button("Remove…", role: .destructive) { removal = id }.disabled(id == nil)
+    }
+    private func export(_ groups: [ConnectionGroup]) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "connections.json"
+        if panel.runModal() == .OK, let file = panel.url { modify { try library.exportGroups(groups, to: file) } }
+    }
+    private func importProfiles() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        if panel.runModal() == .OK, let file = panel.url { modify { try library.importGroups(from: file) } }
     }
     private func modify(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
     private func remove(_ id: UUID) {

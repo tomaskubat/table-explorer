@@ -60,7 +60,7 @@ final class MariaDBTransportTests: XCTestCase {
     }
     @MainActor
     private func enterProfile(_ app: XCUIApplication, name: String) throws {
-        app.buttons["New Connection"].click()
+        app.newProfile(driver: "MariaDB")
         XCTAssertTrue(app.textFields["Connection Name"].waitForExistence(timeout: 4))
         app.textFields["Connection Name"].replaceText(with: name)
         app.textFields["User"].replaceText(with: "browser")

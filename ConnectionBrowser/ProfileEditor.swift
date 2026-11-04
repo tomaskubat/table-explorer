@@ -35,16 +35,23 @@ struct ProfileEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var password = ""
     @State private var error: String?
+    @State private var createdFile = false
+    @State private var confirmCreate = false
     @State private var succeeded = false
     @State private var busy = false
+
+    init(library: ConnectionLibrary, profile: ConnectionProfile, groupID: UUID, initialPassword: String = "",
+         onConnect: @escaping (ConnectionProfile, DatabaseSession, String, String) -> Void) {
+        self.library = library; self.onConnect = onConnect
+        _profile = State(initialValue: profile); _groupID = State(initialValue: groupID)
+        _password = State(initialValue: initialPassword)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Connection Settings").font(.title2)
             Form {
-                Picker("Driver", selection: $profile.driver) {
-                    ForEach(DatabaseDriver.allCases, id: \.self) { Text($0.rawValue) }
-                }.pickerStyle(.segmented)
+                LabeledContent("Driver", value: profile.driver.rawValue)
                 TextField("Connection Name", text: $profile.name).accessibilityIdentifier("Connection Name")
                 Picker("Group", selection: $groupID) {
                     ForEach(library.groups) { Text($0.name).tag($0.id) }
@@ -73,6 +80,15 @@ struct ProfileEditor: View {
                             if panel.runModal() == .OK { profile.filePath = panel.url?.path ?? profile.filePath }
                         }
                     }
+                    Button("Create SQLite File…") {
+                        if profile.filePath.isEmpty {
+                            let panel = NSSavePanel(); panel.nameFieldStringValue = "database.sqlite"
+                            guard panel.runModal() == .OK, let url = panel.url else { return }
+                            profile.filePath = url.path
+                        }
+                        confirmCreate = true
+                    }
+                    if createdFile { Text("Database file created").foregroundStyle(.green) }
                 }
             }.disabled(busy)
             if let error {
@@ -92,6 +108,14 @@ struct ProfileEditor: View {
             }
         }
         .padding(22).frame(width: 540)
+        .confirmationDialog("Create a new SQLite database at this path?", isPresented: $confirmCreate) {
+            Button("Create File") {
+                do { try DatabaseSession.createSQLite(at: profile.filePath); createdFile = true; error = nil }
+                catch { self.error = error.localizedDescription }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text(profile.filePath) }
+        .onChange(of: profile.filePath) { createdFile = false }
         .interactiveDismissDisabled(busy)
         .onChange(of: profile) { succeeded = false; error = nil }
         .onChange(of: password) { succeeded = false; error = nil }

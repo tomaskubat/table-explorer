@@ -13,7 +13,7 @@ final class MariaDBConnectionTests: XCTestCase {
         app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
         app.launch()
 
-        app.buttons["New Connection"].click()
+        app.newProfile(driver: "MariaDB")
         XCTAssertTrue(app.textFields["Connection Name"].waitForExistence(timeout: 5), app.debugDescription)
         app.textFields["Connection Name"].replaceText(with: "Fixture Catalog")
         app.textFields["Port"].replaceText(with: "1")

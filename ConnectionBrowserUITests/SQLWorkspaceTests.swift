@@ -15,9 +15,7 @@ final class SQLWorkspaceTests: XCTestCase {
         defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
         app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
         app.launch()
-        app.buttons["New Connection"].click()
-        XCTAssertTrue(app.radioButtons["SQLite"].waitForExistence(timeout: 4))
-        app.radioButtons["SQLite"].click()
+        app.newProfile(driver: "SQLite")
         app.textFields["Connection Name"].replaceText(with: "Notebook")
         app.textFields["Database File"].replaceText(with: file.path)
         app.buttons["Save and Connect"].click()

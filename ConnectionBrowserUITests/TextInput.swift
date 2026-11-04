@@ -26,3 +26,16 @@ extension XCUIElement {
         }
     }
 }
+
+extension XCUIApplication {
+    @MainActor
+    func newProfile(driver: String) {
+        buttons["New Connection"].click()
+        let choice = buttons["driver-" + driver]
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        XCTAssertFalse(buttons["Create"].isEnabled)
+        choice.click()
+        buttons["Create"].click()
+        XCTAssertTrue(textFields["Connection Name"].waitForExistence(timeout: 5))
+    }
+}

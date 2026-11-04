@@ -15,9 +15,7 @@ final class DataTransferTests: XCTestCase {
         let destination = directory.appending(path: "cities.json")
         app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path
         app.launch()
-        app.buttons["New Connection"].click()
-        XCTAssertTrue(app.radioButtons["SQLite"].waitForExistence(timeout: 5))
-        app.radioButtons["SQLite"].click()
+        app.newProfile(driver: "SQLite")
         app.textFields["Connection Name"].replaceText(with: "Transfer")
         app.textFields["Database File"].replaceText(with: file.path)
         app.buttons["Save and Connect"].click()
