@@ -139,7 +139,7 @@ private struct ChangePreview: View {
             HStack {
                 Spacer()
                 Button("Close Preview") { tab.closeAfterCommit = false; dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Commit Changes") { Task { await workspace.commit(tab) } }.keyboardShortcut("s").disabled(tab.busy || !workspace.connected)
+                Button("Commit Changes") { Task { await workspace.commit(tab) } }.keyboardShortcut(Keymap.saved[.save].shortcut).disabled(tab.busy || !workspace.connected)
             }
         }.padding(20).frame(width: 550, height: 280).interactiveDismissDisabled(tab.busy)
         .onDisappear { tab.closeAfterCommit = false }

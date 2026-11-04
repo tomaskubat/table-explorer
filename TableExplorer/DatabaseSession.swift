@@ -40,6 +40,9 @@ final class MariaHandle {
     func open(_ profile: ConnectionProfile, password: String) throws {
         var timeout = UInt32(BrowserPreferences.timeout)
         var mode = profile.usesSocket ? MYSQL_PROTOCOL_SOCKET : MYSQL_PROTOCOL_TCP
+        var reconnect: my_bool = 0
+        // A keepalive must not silently start a new server session and lose its transaction.
+        mysql_options(connection, MYSQL_OPT_RECONNECT, &reconnect)
         mysql_options(connection, MYSQL_OPT_CONNECT_TIMEOUT, &timeout)
         mysql_options(connection, MYSQL_OPT_PROTOCOL, &mode)
         mysql_options(connection, MYSQL_SET_CHARSET_NAME, "utf8mb4")
@@ -273,6 +276,12 @@ actor DatabaseSession {
         maria = nil; sqlite = nil; mariaEndpoint = nil; tunnel = nil
         mariaDatabase = ""; changedDatabase = nil
     }
+
+    func ping() throws {
+        guard let maria, !hasOpenTransaction, changedDatabase == nil else { return }
+        if mysql_ping(maria.connection) != 0 { throw maria.failure() }
+    }
+    var isMariaConnection: Bool { maria != nil }
 
     func selectDatabase(_ name: String) throws {
         guard let maria else { throw BrowserError("No MariaDB session is open.") }

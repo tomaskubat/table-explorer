@@ -20,6 +20,8 @@ extension FocusedValues {
 }
 
 struct WorkspaceCommands: Commands {
+    @AppStorage(Keymap.key, store: BrowserPreferences.defaults) private var bindings = Data()
+    private var map: Keymap { Keymap(bindings) }
     @FocusedValue(\.connectionWorkspace) private var workspace
     @FocusedValue(\.activeConnectionTab) private var activeTab
     @Environment(\.openWindow) private var openWindow
@@ -28,20 +30,20 @@ struct WorkspaceCommands: Commands {
     @Environment(\.openDocument) private var openDocument
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Saved Connections") { openWindow(id: "connections") }.keyboardShortcut("n")
-            Button("New SQL Document") { newDocument(SQLFileDocument()) }.keyboardShortcut("n", modifiers: [.command, .shift])
-            Button("Open SQL File…") { openSQL() }.keyboardShortcut("o")
-            Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
+            Button("Saved Connections") { openWindow(id: "connections") }.keyboardShortcut(map[.connections].shortcut)
+            Button("New SQL Document") { newDocument(SQLFileDocument()) }.keyboardShortcut(map[.document].shortcut)
+            Button("Open SQL File…") { openSQL() }.keyboardShortcut(map[.openFile].shortcut)
+            Button("New Query") { workspace?.newQuery() }.keyboardShortcut(map[.newQuery].shortcut).disabled(workspace == nil)
             Button("Recover SQL Draft…") { workspace?.recoveryShown = true }.disabled(workspace == nil)
             if let workspace, let tab = activeTab {
                 Divider()
-                Button("Close Tab") { closeTab?() }.keyboardShortcut("w").disabled(tab.busy)
+                Button("Close Tab") { closeTab?() }.keyboardShortcut(map[.close].shortcut).disabled(tab.busy)
                 if tab.object == nil {
                     Button("Save Query") { workspace.saveActiveTab() }
-                        .keyboardShortcut("s")
+                        .keyboardShortcut(map[.save].shortcut)
                     Button("Save Query As…") { do { try workspace.saveSQL(tab, saveAs: true) } catch { workspace.error = error.localizedDescription } }
                 } else {
-                    Button("Commit Changes…") { workspace.saveActiveTab() }.keyboardShortcut("s").disabled(!workspace.connected || tab.changes.isEmpty)
+                    Button("Commit Changes…") { workspace.saveActiveTab() }.keyboardShortcut(map[.save].shortcut).disabled(!workspace.connected || tab.changes.isEmpty)
                 }
             }
         }
@@ -54,41 +56,50 @@ struct WorkspaceCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Button("Add Row") {
                 if gridFocused, let tab = workspace?.active { tab.editor = RowChange(original: nil) }
-            }.keyboardShortcut("i").disabled(!gridFocused || workspace?.active?.canInsert != true)
+            }.keyboardShortcut(map[.add].shortcut).disabled(!gridFocused || workspace?.active?.canInsert != true)
             Button("Duplicate Rows") {
                 if gridFocused, let tab = workspace?.active { tab.duplicate(tab.selectedRows) }
-            }.keyboardShortcut("d").disabled(!gridFocused || workspace?.active?.canInsert != true || workspace?.active?.selectedRows.isEmpty != false)
+            }.keyboardShortcut(map[.duplicate].shortcut).disabled(!gridFocused || workspace?.active?.canInsert != true || workspace?.active?.selectedRows.isEmpty != false)
             Button("Undo Staged Change") {
                 if gridFocused { workspace?.active?.undoChange() }
             }.disabled(!gridFocused || workspace?.active?.editHistory.isEmpty != false)
+            Button("Toggle Block Comment") {
+                if let tab = activeTab { SQLDocument.toggleBlockComment(in: tab) }
+            }.keyboardShortcut(map[.block].shortcut).disabled(!sqlFocused)
+            ForEach([BrowserAction.bigger, .smaller], id: \.self) { action in
+                Button(action.rawValue) {
+                    let size = BrowserPreferences.integer("queryFontSize", fallback: 13, range: 9...28)
+                    BrowserPreferences.defaults.set(min(28, max(9, size + (action == .bigger ? 1 : -1))), forKey: "queryFontSize")
+                }.keyboardShortcut(map[action].shortcut).disabled(!sqlFocused)
+            }
             Button("Complete SQL") {
                 (NSApp.keyWindow?.firstResponder as? NSTextView)?.complete(nil)
-            }.keyboardShortcut(.escape, modifiers: .option).disabled(!sqlFocused)
+            }.keyboardShortcut(map[.complete].shortcut).disabled(!sqlFocused)
             Button("Toggle Line Comment") {
                 if sqlFocused, let tab = workspace?.active { SQLDocument.toggleComment(in: tab) }
-            }.keyboardShortcut("/").disabled(!sqlFocused)
+            }.keyboardShortcut(map[.comment].shortcut).disabled(!sqlFocused)
         }
         CommandGroup(after: .sidebar) {
-            Button("Show Filters") { activeTab?.toggleFilters() }.keyboardShortcut("f").disabled(!gridFocused)
+            Button("Show Filters") { activeTab?.toggleFilters() }.keyboardShortcut(map[.filters].shortcut).disabled(!gridFocused)
             Button(workspace?.focusArea == .filter ? "Apply All Conditions" : "Run Current Statement") {
                 if let workspace, let activeTab {
                     if workspace.focusArea == .filter { Task { await workspace.applyFilters(activeTab) } }
                     else if sqlFocused { activeTab.runRequest = UUID() }
                 }
-            }.keyboardShortcut(.return, modifiers: .command)
+            }.keyboardShortcut(map[.run].shortcut)
                 .disabled(workspace?.connected != true || activeTab?.busy != false || !(sqlFocused || (workspace?.focusArea == .filter && activeTab?.filterEditorVisible == true)))
-            Button("Choose Columns…") { activeTab?.columnsShown.toggle() }.keyboardShortcut("f", modifiers: [.command, .option]).disabled(!gridFocused)
-            Button("Previous Page") { changePage(forward: false) }.keyboardShortcut(.leftArrow, modifiers: .command)
+            Button("Choose Columns…") { activeTab?.columnsShown.toggle() }.keyboardShortcut(map[.columns].shortcut).disabled(!gridFocused)
+            Button("Previous Page") { changePage(forward: false) }.keyboardShortcut(map[.back].shortcut)
                 .disabled(!gridFocused || activeTab?.busy != false || (activeTab?.offset ?? 0) == 0)
-            Button("Next Page") { changePage(forward: true) }.keyboardShortcut(.rightArrow, modifiers: .command)
+            Button("Next Page") { changePage(forward: true) }.keyboardShortcut(map[.forward].shortcut)
                 .disabled(!gridFocused || activeTab?.busy != false || activeTab?.hasNextPage != true)
-            Button("Preview Changes…") { activeTab?.previewShown = true }.keyboardShortcut("p", modifiers: [.command, .shift])
+            Button("Preview Changes…") { activeTab?.previewShown = true }.keyboardShortcut(map[.preview].shortcut)
                 .disabled(activeTab?.changes.isEmpty != false || workspace?.connected != true)
             Divider()
             Toggle("Item List", isOn: flag(\.showItems)).disabled(workspace == nil)
             Toggle("Row Detail", isOn: flag(\.showDetails)).disabled(workspace == nil)
             Toggle("SQL Console", isOn: flag(\.showConsole))
-                .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(workspace == nil)
+                .keyboardShortcut(map[.console].shortcut).disabled(workspace == nil)
         }
         CommandMenu("Database") {
             Button("New Table…") { workspace?.schemaDraft = SchemaDraft(kind: .table) }.disabled(workspace?.connected != true)
@@ -102,11 +113,17 @@ struct WorkspaceCommands: Commands {
                 Button("Process List…") { workspace?.serverTool = .processes }.disabled(workspace?.connected != true)
             }
         }
+        CommandMenu("Navigate") {
+            ForEach([BrowserAction.previousTab, .nextTab, .previousPane, .nextPane, .previousWorkspace, .nextWorkspace, .data, .structure], id: \.self) { action in
+                Button(action.rawValue) { navigate(action) }.keyboardShortcut(map[action].shortcut)
+                    .disabled(workspace == nil || ([.data,.structure].contains(action) && activeTab?.object == nil))
+            }
+        }
         CommandGroup(before: .windowList) {
             Button("Show Workspaces") { openWindow(id: "workspaces") }
         }
         CommandMenu("Connection") {
-            Button("Open Anything…") { workspace?.objectSearchShown = true }.keyboardShortcut("p").disabled(workspace?.connected != true)
+            Button("Open Anything…") { workspace?.objectSearchShown = true }.keyboardShortcut(map[.search].shortcut).disabled(workspace?.connected != true)
             Button("Change Database…") { workspace?.databaseSelectorShown = true }
                 .disabled(workspace?.profile.driver != .mariaDB || workspace?.connected != true)
             Divider()
@@ -114,6 +131,22 @@ struct WorkspaceCommands: Commands {
                 .disabled(workspace?.connected != true || workspace?.hasRunningTasks == true)
             Button("Reconnect") { if let workspace { Task { await workspace.reconnect() } } }
                 .disabled(workspace?.connected != false || workspace?.reconnecting == true)
+        }
+    }
+    private func navigate(_ action: BrowserAction) {
+        guard let w = workspace else { return }
+        switch action {
+        case .nextTab, .previousTab:
+            guard !w.tabs.isEmpty else { return }
+            let i = w.tabs.firstIndex { $0.id == w.activeID } ?? 0
+            w.activeID = w.tabs[(i + (action == .nextTab ? 1 : -1) + w.tabs.count) % w.tabs.count].id
+        case .data, .structure: activeTab?.showStructure = action == .structure
+        case .nextWorkspace, .previousWorkspace:
+            let windows = NSApp.windows.filter { $0.isVisible && $0.contentView != nil && $0.delegate is WorkspaceWindowGuard.Coordinator }.sorted { $0.windowNumber < $1.windowNumber }
+            guard let i = windows.firstIndex(where: { $0 === w.window }) else { return }
+            windows[(i + (action == .nextWorkspace ? 1 : -1) + windows.count) % windows.count].makeKeyAndOrderFront(nil)
+        case .nextPane, .previousPane: w.paneDirection = action == .nextPane ? 1 : -1; w.paneRequest = UUID()
+        default: break
         }
     }
     private func changePage(forward: Bool) {

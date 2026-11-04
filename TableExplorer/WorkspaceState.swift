@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Only the information needed to reopen a workspace. Query results, staged row
 /// changes and authentication data never belong in this file.
@@ -76,7 +77,7 @@ struct RememberedTab: Codable {
 struct WorkspaceStateFile {
     let url: URL
     init(directory: URL, profile: UUID) {
-        url = directory.appending(path: "Workspaces").appending(path: profile.uuidString + ".json")
+        url = BrowserPreferences.folder("stateDirectory", fallback: directory).appending(path: "Workspaces").appending(path: profile.uuidString + ".json")
     }
     func read() throws -> RememberedWorkspace? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -89,5 +90,34 @@ struct WorkspaceStateFile {
     }
     func clear() throws {
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+}
+
+// The per-profile file is what a manually reopened connection uses. A clean
+// quit also needs one snapshot per window when a profile is open twice.
+struct StartupWindow: Codable {
+    let profile: UUID
+    let state: RememberedWorkspace?
+}
+
+enum StartupWindowFile {
+    static func location(in directory: URL) -> URL {
+        // Startup is a preference of this Mac, even if its connection library is synced.
+        let root = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"].map { URL(filePath: $0) }
+            ?? URL.applicationSupportDirectory.appending(path: "TableExplorer", directoryHint: .isDirectory)
+        let key = SHA256.hash(data: Data(directory.standardizedFileURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
+        return root.appending(path: "Startup", directoryHint: .isDirectory).appending(path: key + ".json")
+    }
+    static func save(_ windows: [StartupWindow], in directory: URL) throws {
+        let url = location(in: directory)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try JSONEncoder().encode(windows).write(to: url, options: .atomic)
+    }
+    static func consume(in directory: URL) -> [StartupWindow] {
+        let url = location(in: directory)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        defer { try? FileManager.default.removeItem(at: url) }
+        return (try? JSONDecoder().decode([StartupWindow].self, from: data)) ?? []
     }
 }

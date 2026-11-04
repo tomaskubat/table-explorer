@@ -25,7 +25,7 @@ struct WorkspaceTitleBar: View {
                 tool("Database", "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
             }
             Button("SQL") { workspace.newQuery() }.buttonStyle(.plain).font(.system(size: 10, weight: .semibold))
-                .frame(width: 26).accessibilityLabel("New Query").help("New SQL query (⌘T)")
+                .frame(width: 26).accessibilityLabel("New Query").help("New SQL query")
             HStack(spacing: 6) {
                 Text([workspace.profile.driver.rawValue, workspace.profile.name, workspace.database, workspace.active?.title]
                     .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " : "))

@@ -40,13 +40,12 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
             // Native documents and sheets keep their own Save and Close commands.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
                 guard let self, let window, window.isKeyWindow, window.attachedSheet == nil,
-                      event.window === window,
-                      event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command else { return event }
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "s": self.workspace.saveActiveTab()
-                case "w" where self.workspace.active != nil: self.closeActiveTab()
-                default: return event
-                }
+                      event.window === window, !event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                      let binding = KeyBinding(event: event) else { return event }
+                let map = Keymap.saved
+                if binding == map[.save] { self.workspace.saveActiveTab() }
+                else if binding == map[.close], self.workspace.active != nil { self.closeActiveTab() }
+                else { return event }
                 return nil
             }
         }

@@ -7,7 +7,7 @@ struct TableControls: View {
 
     var body: some View {
         HStack {
-            Button("Columns") { tab.columnsShown.toggle() }.help("Choose visible columns (⌘⌥F)")
+            Button("Columns") { tab.columnsShown.toggle() }.help("Choose visible columns")
                 .popover(isPresented: $tab.columnsShown) {
                     ScrollView {
                         VStack(alignment: .leading) {
@@ -22,7 +22,7 @@ struct TableControls: View {
                         }.padding(12)
                     }.frame(width: 180, height: min(310, CGFloat(tab.result.columns.count) * 25 + 100))
                 }
-            Button("Filters") { tab.toggleFilters() }.help("Show filters (⌘F)")
+            Button("Filters") { tab.toggleFilters() }.help("Show filters")
         }.controlSize(.small)
     }
 }
@@ -61,7 +61,7 @@ struct FilterConditions: View {
                 HStack {
                     Button("Add Condition") { addFilter() }
                     Button("Unset") { tab.filters = []; tab.appliedFilters = []; tab.offset = 0; reload() }
-                    Button("Apply Filters") { Task { await workspace.applyFilters(tab) } }.help("Apply all conditions (⌘Return)")
+                    Button("Apply Filters") { Task { await workspace.applyFilters(tab) } }.help("Apply all conditions")
                 }
             }.padding(7).background(BrowserChrome.panel).onChange(of: editingFilter) {
                 if editingFilter { workspace.focusArea = .filter }

@@ -46,6 +46,9 @@ final class SQLFileTests: XCTestCase {
         preview.name = "Workspace overview"; preview.lifetime = .keepAlways; add(preview)
         overview.buttons["files / files.sqlite"].click()
 
+        // The tab strip appears when the workspace has more than one tab.
+        window.staticTexts["mesto"].doubleClick()
+        XCTAssertTrue(window.staticTexts["Brno"].waitForExistence(timeout: 5))
         openFile()
         let editor = window.textViews["SQL Editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))

@@ -57,6 +57,7 @@ final class WorkspaceTab: Identifiable {
         get { if let focusedRow, selectedRows.contains(focusedRow) { return focusedRow }; return selectedRows.min() }
         set { selectedRows = newValue.map { [$0] } ?? []; focusedRow = newValue }
     }
+    var countEstimated = false
     var totalCount: Int?
     var hasNextPage: Bool { totalCount.map { offset + result.rows.count < $0 } ?? false }
     var filterEditorVisible = false
@@ -190,7 +191,9 @@ final class Workspace: Identifiable {
     private let sshPassword: String
     private let initialDatabase: String
     private let shouldRemember: () -> Bool
+    var startupState: RememberedWorkspace?
     private var started = false
+    var loadingInitialCatalog = true
     private var readyToSave = false
     var consoleHeight: CGFloat = 135
     var navigator = "Items"
@@ -205,6 +208,8 @@ final class Workspace: Identifiable {
     var reconnecting = false
     var showItems = true { didSet { panelChanged(.items, visible: showItems) } }
     enum FocusArea: Hashable { case grid, sql, filter, items, detail, console }
+    var paneRequest = UUID()
+    var paneDirection = 1
     var focusArea: FocusArea?
     var showDetails = true { didSet { panelChanged(.detail, visible: showDetails) } }
     var showConsole = true { didSet { panelChanged(.console, visible: showConsole) } }
@@ -237,7 +242,9 @@ final class Workspace: Identifiable {
     func start() async {
         guard !started else { return }
         started = true
-        let state = shouldRemember() ? try? notebook.workspaceState.read() : nil
+        defer { loadingInitialCatalog = false }
+        let state = shouldRemember() ? (startupState ?? (try? notebook.workspaceState.read())) : nil
+        startupState = nil
         if let state, state.initialDatabase == initialDatabase, profile.driver == .mariaDB, !state.database.isEmpty, state.database != database {
             if (try? await session.selectDatabase(state.database)) != nil { database = state.database }
         }
@@ -266,12 +273,17 @@ final class Workspace: Identifiable {
         offerBootstrap()
     }
 
-    func rememberOnClose() {
-        guard readyToSave, shouldRemember() else { return }
-        let state = RememberedWorkspace(initialDatabase: initialDatabase, database: database, tabs: tabs.map(RememberedTab.init),
+    func stateForReopening() -> RememberedWorkspace? {
+        guard readyToSave, shouldRemember() else { return nil }
+        return RememberedWorkspace(initialDatabase: initialDatabase, database: database, tabs: tabs.map(RememberedTab.init),
                                         active: activeID, panels: PanelLayout(items: showItems, detail: showDetails, console: showConsole),
                                         consoleHeight: consoleHeight, navigator: navigator)
+    }
+
+    @discardableResult func rememberOnClose() -> RememberedWorkspace? {
+        guard let state = stateForReopening() else { return nil }
         do { try notebook.workspaceState.write(state) } catch { self.error = error.localizedDescription }
+        return state
     }
 
     private func panelChanged(_ area: FocusArea, visible: Bool) {
@@ -293,6 +305,7 @@ final class Workspace: Identifiable {
 
     func updateRecovery(_ tab: WorkspaceTab) {
         tab.draftSave?.cancel()
+        guard BrowserPreferences.defaults.object(forKey: "autoSaveDrafts") as? Bool != false else { return }
         tab.draftSave = Task { [weak self, weak tab] in
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
             if let self, let tab { self.saveRecovery(tab) }
@@ -301,6 +314,7 @@ final class Workspace: Identifiable {
 
     func saveRecovery(_ tab: WorkspaceTab) {
         guard tab.object == nil && tabs.contains(where: { $0.id == tab.id }) else { return }
+        if BrowserPreferences.defaults.object(forKey: "autoSaveDrafts") as? Bool == false { return }
         if tab.unsavedSQL && !tab.sql.isEmpty && !QueryNotebook.containsCredentials(tab.sql) {
             notebook.saveDraft(RecoverableSQL(id: tab.id, database: database, title: tab.title, sql: tab.sql, date: Date()))
         } else { notebook.removeDraft(tab.id) }
@@ -424,7 +438,7 @@ final class Workspace: Identifiable {
         }
     }
 
-    private func record(_ error: Error) {
+    func record(_ error: Error) {
         self.error = error.localizedDescription
         if (error as? BrowserError)?.disconnected == true { connected = false }
     }
@@ -534,7 +548,7 @@ final class Workspace: Identifiable {
                                               keyColumns: keyColumns, firstRows: preview)
             guard request == tab.requestID else { return }
             log.entries.append(contentsOf: page.statements)
-            tab.totalCount = page.count; tab.offset = page.offset
+            tab.countEstimated = page.estimated; tab.totalCount = page.count; tab.offset = page.offset
             // The user may already have selected a row while the server was counting.
             if firstLoad && !tab.result.columns.isEmpty { return }
             tab.result = page.result
@@ -561,12 +575,24 @@ final class Workspace: Identifiable {
     }
     func run(_ statements: [String], on tab: WorkspaceTab, templates: [String]? = nil) async {
         guard connected, !tab.busy else { return }
-        let cancellation = QueryCancellation()
-        tab.busy = true; tab.stopRequested = false; tab.cancellation = cancellation
+        tab.busy = true; tab.stopRequested = false
         tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
         defer { tab.busy = false; tab.cancellation = nil; tab.stopRequested = false }
         for (index, sql) in statements.enumerated() {
-            if cancellation.wasRequested { break }
+            guard !tab.stopRequested else { break }
+            let cancellation = QueryCancellation()
+            tab.cancellation = cancellation
+            let timeout = BrowserPreferences.integer("statementTimeout", fallback: 0, range: 0...86400)
+            let deadline = timeout > 0 ? Task.detached {
+                do { try await Task.sleep(for: .seconds(timeout)) } catch { return }
+                do { try cancellation.stop(timedOut: true) }
+                catch {
+                    await MainActor.run {
+                        if tab.cancellation === cancellation { tab.error = "The time limit expired, but the database could not stop the query: " + error.localizedDescription }
+                    }
+                }
+            } : nil
+            defer { deadline?.cancel() }
             guard connected else { tab.error = "This workspace is disconnected."; return }
             let start = Date()
             var results = [QueryResult()]
@@ -582,7 +608,8 @@ final class Workspace: Identifiable {
                     await reloadObjects()
                 }
                 results = outcome.results
-            } catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
+                if cancellation.timedOut { failure = "Query exceeded the \(timeout)-second time limit." }
+            } catch { failure = cancellation.timedOut ? "Query exceeded the \(timeout)-second time limit." : error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
             let recorded = templates?[index] ?? sql
             let hidden = QueryNotebook.containsCredentials(sql) || QueryNotebook.containsCredentials(recorded)
@@ -594,7 +621,7 @@ final class Workspace: Identifiable {
                 tab.executions.append((title, sql, result, failure, duration))
             }
             tab.selectExecution(tab.executions.count - 1)
-            if failure != nil { break }
+            if failure != nil || tab.stopRequested || cancellation.wasRequested { break }
         }
     }
 }
@@ -602,20 +629,45 @@ final class Workspace: Identifiable {
 @MainActor @Observable
 final class WorkspaceRegistry: NSObject {
     var sessions: [UUID: Workspace] = [:]
-    private var notebooks: [URL: QueryNotebook] = [:]
+    private var notebooks: [[URL]: QueryNotebook] = [:]
     override init() {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(rememberOpenWindows),
                                                name: NSApplication.willTerminateNotification, object: nil)
     }
+    private var didRestore = false
+    func takeStartupWindows(in directory: URL) -> [StartupWindow] {
+        guard !didRestore else { return [] }
+        didRestore = true
+        let windows = StartupWindowFile.consume(in: directory)
+        let defaults = BrowserPreferences.defaults
+        guard defaults.bool(forKey: "reopenWorkspaces"),
+              defaults.stringArray(forKey: "startupLibraries")?.contains(directory.standardizedFileURL.path) == true else { return [] }
+        return windows
+    }
+
     @objc private func rememberOpenWindows() {
-        // If a profile has several windows, reopen the frontmost one's tabs.
-        for window in NSApp.orderedWindows.reversed() {
-            sessions.values.first { $0.window === window }?.rememberOnClose()
+        var byLibrary: [URL: [StartupWindow]] = [:]
+        let reopen = BrowserPreferences.defaults.bool(forKey: "reopenWorkspaces")
+        // Back to front: the frontmost window remains the default on manual reopen.
+        let ordered = NSApp.orderedWindows
+        let other = sessions.values.compactMap(\.window).filter { window in !ordered.contains(window) }
+        for window in other + Array(ordered.reversed()) {
+            guard let workspace = sessions.values.first(where: { $0.window === window }) else { continue }
+            let state = workspace.rememberOnClose()
+            if reopen && workspace.connected {
+                byLibrary[workspace.notebook.libraryDirectory.standardizedFileURL, default: []].append(
+                    StartupWindow(profile: workspace.profile.id, state: state))
+            }
         }
+        var paths: [String] = []
+        for (directory, windows) in byLibrary {
+            if (try? StartupWindowFile.save(windows, in: directory)) != nil { paths.append(directory.path) }
+        }
+        BrowserPreferences.defaults.set(paths, forKey: "startupLibraries")
     }
     func notebook(for id: UUID, directory: URL) -> QueryNotebook {
-        let key = directory.appending(path: id.uuidString)
+        let key = [directory.appending(path: id.uuidString), BrowserPreferences.folder("queryDirectory", fallback: directory), BrowserPreferences.folder("stateDirectory", fallback: directory)]
         if let existing = notebooks[key] { return existing }
         let notebook = QueryNotebook(directory: directory, profile: id)
         notebooks[key] = notebook

@@ -78,6 +78,17 @@ enum SQLDocument {
         return current.map { [$0.sql] } ?? []
     }
 
+    @MainActor static func toggleBlockComment(in tab: WorkspaceTab) {
+        let source = tab.sql as NSString
+        let selected = NSIntersectionRange(tab.textSelection, NSRange(location: 0, length: source.length))
+        let range = selected.length > 0 ? selected : source.lineRange(for: selected)
+        let fragment = source.substring(with: range)
+        let changed = fragment.hasPrefix("/*") && fragment.hasSuffix("*/") && fragment.count >= 4
+            ? String(fragment.dropFirst(2).dropLast(2)) : "/*" + fragment + "*/"
+        tab.sql = source.replacingCharacters(in: range, with: changed)
+        tab.textSelection = NSRange(location: range.location, length: changed.utf16.count)
+    }
+
     @MainActor static func toggleComment(in tab: WorkspaceTab) {
         let source = tab.sql as NSString
         let selection = tab.textSelection
@@ -135,6 +146,7 @@ final class QueryNotebook {
     }
     private var openDrafts: Set<UUID> = []
     func restoredTabID(_ id: UUID) -> UUID { openDrafts.contains(id) ? UUID() : id }
+    let libraryDirectory: URL
     let workspaceState: WorkspaceStateFile
     var panels: PanelLayout { archive.panels ?? PanelLayout() }
     func saveLayout(_ layout: PanelLayout) {
@@ -164,8 +176,9 @@ final class QueryNotebook {
     var favorites: [FavoriteQuery] { archive.favorites }
 
     init(directory: URL, profile: UUID) {
+        libraryDirectory = directory
         workspaceState = WorkspaceStateFile(directory: directory, profile: profile)
-        file = directory.appending(path: "Queries").appending(path: profile.uuidString + ".json")
+        file = BrowserPreferences.folder("queryDirectory", fallback: directory).appending(path: "Queries").appending(path: profile.uuidString + ".json")
         if FileManager.default.fileExists(atPath: file.path) {
             do { archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: file)) }
             catch { self.error = error.localizedDescription; readable = false }

@@ -7,6 +7,8 @@ struct ResultTable: NSViewRepresentable {
     @Binding var selected: Int?
     @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var fontSize = 14.0
 
+    @TableStylePreference private var style
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
         let table = NSTableView()
@@ -20,17 +22,18 @@ struct ResultTable: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let table = scroll.documentView as? NSTableView else { return }
+        style.apply(to: table, scroll: scroll)
         let c = context.coordinator
         let columnsChanged = c.columns != result.columns
-        let reload = columnsChanged || c.parent.result.rows != result.rows || c.size != fontSize
+        let reload = columnsChanged || c.parent.result.rows != result.rows || c.size != fontSize || c.style != style
         c.applying = true; defer { c.applying = false }
-        c.parent = self; c.size = fontSize
+        c.parent = self; c.size = fontSize; c.style = style
         table.rowHeight = max(22, fontSize + 14)
         if columnsChanged {
             c.columns = result.columns
             for col in table.tableColumns { table.removeTableColumn(col) }
             for (index, name) in result.columns.enumerated() {
-                table.addTableColumn(GridAppearance.column(name, index: index, rows: result.rows, fontSize: fontSize))
+                table.addTableColumn(GridAppearance.column(name, index: index, rows: result.rows, fontSize: fontSize, family: style.family))
             }
         }
         if reload { table.reloadData() }
@@ -41,6 +44,7 @@ struct ResultTable: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
         var parent: ResultTable
         var columns: [String] = []
+        var style = TableStyle()
         var size = 0.0
         var applying = false
         init(_ parent: ResultTable) { self.parent = parent }
@@ -50,7 +54,7 @@ struct ResultTable: NSViewRepresentable {
                   parent.result.rows.indices.contains(row), parent.result.rows[row].indices.contains(col) else { return nil }
             let cell = GridAppearance.cell(in: tableView)
             let value = parent.result.rows[row][col]
-            GridAppearance.show(value, in: cell, size: size)
+            GridAppearance.show(value, in: cell, size: size, style: style)
             return cell
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
@@ -69,17 +73,17 @@ struct ResultTable: NSViewRepresentable {
         table.gridStyleMask = [.solidVerticalGridLineMask]
     }
 
-    static func column(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double, savedWidth: CGFloat? = nil) -> NSTableColumn {
+    static func column(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double, family: String = "System", savedWidth: CGFloat? = nil) -> NSTableColumn {
         let model = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(String(index)))
         model.title = name; model.minWidth = 50; model.headerCell.alignment = .center
-        model.width = savedWidth ?? width(name, index: index, rows: rows, fontSize: fontSize)
+        model.width = savedWidth ?? width(name, index: index, rows: rows, fontSize: fontSize, family: family)
         model.resizingMask = .userResizingMask
         return model
     }
 
-    static func width(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double) -> CGFloat {
+    static func width(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double, family: String = "System") -> CGFloat {
         // Sample only on creation. Paging preserves manual column widths.
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = FontChoice.font(family, fontSize)
         let widths = rows.prefix(40).compactMap { row -> CGFloat? in
             guard row.indices.contains(index) else { return nil }
             let sample: String
@@ -110,18 +114,40 @@ struct ResultTable: NSViewRepresentable {
         }
     }
 
-    static func show(_ value: SQLValue, in cell: NSTableCellView, size: Double, prefix: String = "") {
+    static func show(_ value: SQLValue, in cell: NSTableCellView, size: Double, prefix: String = "", style: TableStyle) {
         guard let field = cell.textField else { return }
         let text: String
         if case .blob(let bytes) = value { text = "BLOB · \(bytes.count) bytes" } else { text = value.display }
-        field.font = .systemFont(ofSize: size)
+        field.font = FontChoice.font(style.family, size)
         field.stringValue = prefix + (text.isEmpty ? "EMPTY" : text)
         switch value {
         case .integer, .number: field.alignment = .right
         default: field.alignment = .left
         }
-        field.textColor = value == .null || text.isEmpty ? .tertiaryLabelColor : .labelColor
+        field.textColor = style.palette.color(value == .null || text.isEmpty ? .empty : .cell)
+        field.allowsExpansionToolTips = style.expand
         field.isEditable = false; field.isSelectable = false
         field.setAccessibilityLabel(text.isEmpty ? "Empty string" : text)
     }
+}
+
+struct TableStyle: Equatable {
+    var family = "System", alternate = true, hideScrollers = true, expand = false
+    var palette = InkPalette(Data())
+    @MainActor func apply(to table: NSTableView, scroll: NSScrollView) {
+        if table.usesAlternatingRowBackgroundColors != alternate { table.usesAlternatingRowBackgroundColors = alternate }
+        if scroll.autohidesScrollers != hideScrollers { scroll.autohidesScrollers = hideScrollers }
+        let scroller: NSScroller.Style = hideScrollers ? .overlay : .legacy
+        if scroll.scrollerStyle != scroller { scroll.scrollerStyle = scroller }
+    }
+}
+
+@propertyWrapper
+struct TableStylePreference: DynamicProperty {
+    @AppStorage("gridFont", store: BrowserPreferences.defaults) private var family = "System"
+    @AppStorage("alternateRows", store: BrowserPreferences.defaults) private var alternating = true
+    @AppStorage("autoHideScrollers", store: BrowserPreferences.defaults) private var hide = true
+    @AppStorage("expandCells", store: BrowserPreferences.defaults) private var expand = false
+    @AppStorage("customInks", store: BrowserPreferences.defaults) private var inks = Data()
+    var wrappedValue: TableStyle { TableStyle(family: family, alternate: alternating, hideScrollers: hide, expand: expand, palette: InkPalette(inks)) }
 }

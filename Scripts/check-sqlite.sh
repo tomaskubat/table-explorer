@@ -15,5 +15,5 @@ xcrun swiftc -swift-version 6 -parse-as-library -module-cache-path .build/QAComp
     -I Drivers -Xcc "-I$connector/include/mariadb" "-L$connector/lib" -lmariadb -lsqlite3 \
     -o "$work/check" Tests/QA/SQLiteChecks.swift "${sources[@]}"
 sqlite3 -batch -bail "$work/test.sqlite" < Tests/Fixtures/SQLite/seed.sql
-"$work/check" "$work/test.sqlite"
+CONNECTION_BROWSER_LIBRARY="$work/library" "$work/check" "$work/test.sqlite"
 sqlite3 "$work/test.sqlite" 'SELECT id,nazev,quote(poznamka) FROM mesto ORDER BY id'

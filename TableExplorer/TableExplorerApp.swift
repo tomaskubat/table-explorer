@@ -68,7 +68,10 @@ struct TableExplorerApp: App {
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 
-        Settings { PreferencesView(library: library) }
+        Settings {
+            PreferencesView(library: library, updateChecks: updates.controller == nil ? nil : Binding(
+                get: { updates.automaticChecks }, set: { updates.controller?.updater.automaticallyChecksForUpdates = $0 }))
+        }
     }
 }
 

@@ -29,7 +29,7 @@ struct QueryPane: View {
             Text(position).monospacedDigit().font(.caption).foregroundStyle(.secondary)
             Spacer()
             Button("Save Favorite", systemImage: "star") { favoriteSheet = true }.labelStyle(.iconOnly).help("Save favorite")
-            Button("Run Current") { run(.current) }.help("Run the statement at the cursor (⌘Return)")
+            Button("Run Current") { run(.current) }.help("Run the statement at the cursor")
             Menu("Run Options") {
                 Button("Run Selection") { run(.selection) }.disabled(tab.textSelection.length == 0)
                 Button("Run Script") { run(.script) }

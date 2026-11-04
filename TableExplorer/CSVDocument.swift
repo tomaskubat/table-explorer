@@ -11,9 +11,9 @@ struct CSVSettings: Hashable, Sendable {
     var header = BrowserPreferences.defaults.object(forKey: "csvHeader") as? Bool ?? true
     var nullToken = BrowserPreferences.defaults.string(forKey: "csvNull") ?? "\\N"
     var encoding = "UTF-8"
-    var lineEnding = "LF"
-    var quoteAll = false
-    var decimalComma = false
+    var lineEnding = BrowserPreferences.defaults.string(forKey: "csvLineEnding") ?? "LF"
+    var quoteAll = BrowserPreferences.defaults.bool(forKey: "csvQuoteAll")
+    var decimalComma = BrowserPreferences.defaults.bool(forKey: "csvDecimalComma")
     var flattenLineBreaks = false
 
     var stringEncoding: String.Encoding {

@@ -15,6 +15,7 @@ struct TablePage: Sendable {
     let count: Int
     let offset: Int
     let statements: [ConsoleEntry]
+    var estimated = false
 }
 
 struct TableRead: Sendable {
@@ -57,10 +58,10 @@ extension DatabaseSession {
         let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending, keyColumns: keyColumns)
         let size = min(max(1, limit), 10000)
         var statements: [ConsoleEntry] = []
-        func select(at start: Int) throws -> QueryResult {
-            let sql = "SELECT *" + read.from + read.order + " LIMIT \(size) OFFSET \(start)"
+        func select(at start: Int, extra: Int = 0) throws -> QueryResult {
+            let sql = "SELECT *" + read.from + read.order + " LIMIT \(size + extra) OFFSET \(start)"
             statements.append(ConsoleEntry(text: sql))
-            return try query(sql, parameters: read.parameters, limit: size)
+            return try query(sql, parameters: read.parameters, limit: size + extra)
         }
         func countRows() throws -> Int {
             let sql = "SELECT COUNT(*)" + read.from
@@ -68,6 +69,23 @@ extension DatabaseSession {
             guard let cell = try query(sql, parameters: read.parameters).rows.first?.first, let count = Int(cell.display)
             else { throw BrowserError("Could not read the filtered row count.") }
             return count
+        }
+        if isMariaConnection, object.kind == .table, !filters.contains(where: \.enabled),
+           BrowserPreferences.defaults.bool(forKey: "estimateRows") {
+            let stats = "SELECT TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?"
+            let threshold = BrowserPreferences.integer("estimateThreshold", fallback: 500000, range: 1...Int.max)
+            if let value = try? query(stats, parameters: [.text(object.name)], limit: 1).rows.first?.first,
+               let estimate = Int(value.display), estimate > threshold {
+                statements.append(ConsoleEntry(text: stats))
+                let start = max(0, offset)
+                var rows = try select(at: start, extra: 1)
+                if rows.rows.count > size {
+                    rows.rows.removeLast()
+                    return TablePage(result: rows, count: max(estimate, start + size + 1), offset: start, statements: statements, estimated: true)
+                }
+                if start == 0 || !rows.rows.isEmpty { return TablePage(result: rows, count: start + rows.rows.count, offset: start, statements: statements) }
+                // Rows were deleted between pages. Recover the last real page using an exact count.
+            }
         }
         if offset <= 0 {
             let rows = try select(at: 0)

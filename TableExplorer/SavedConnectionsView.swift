@@ -74,6 +74,16 @@ struct SavedConnectionsView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 620, minHeight: 380)
+        .task {
+            var failures: [String] = []
+            for item in workspaces.takeStartupWindows(in: library.directory) {
+                guard let (profile, group) = findProfile(item.profile) else { continue }
+                if let message = await connectSaved(profile, group: group, restoring: true, state: item.state) {
+                    failures.append(profile.name + ": " + message)
+                }
+            }
+            if !failures.isEmpty { error = failures.joined(separator: "\n") }
+        }
         .sheet(item: $editor) { editor in
             switch editor {
             case .choose(let group):
@@ -200,21 +210,24 @@ struct SavedConnectionsView: View {
             }
         }
     }
-    private func connectSaved(_ profile: ConnectionProfile, group: UUID) async {
+    @discardableResult private func connectSaved(_ profile: ConnectionProfile, group: UUID, restoring: Bool = false, state: RememberedWorkspace? = nil) async -> String? {
         let session = DatabaseSession()
         do {
             let password = profile.rememberPassword ? try ProfilePassword.read(profile.id) : ""
             let sshPassword = profile.ssh?.rememberSecret == true ? try ProfilePassword.read(profile.id, ssh: true) : ""
             let database = try await session.open(profile, password: password, sshPassword: sshPassword)
-            showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword)
+            showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword, startupState: state)
+            return nil
         } catch {
-            editor = .profile(profile, group, error: error.localizedDescription)
+            if !restoring { editor = .profile(profile, group, error: error.localizedDescription) }
+            return error.localizedDescription
         }
     }
-    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String) {
+    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, startupState: RememberedWorkspace? = nil) {
         let workspace = Workspace(profile: profile, session: session, database: database, password: password, sshPassword: sshPassword, notebook: workspaces.notebook(for: profile.id, directory: library.directory)) { [library] in
             library.groups.lazy.flatMap(\.connections).first { $0.id == profile.id }?.remembersWorkspace == true
         }
+        workspace.startupState = startupState
         workspaces.sessions[workspace.id] = workspace
         openWindow(value: workspace.id)
     }

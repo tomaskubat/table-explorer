@@ -30,9 +30,10 @@ struct SQLFileView: View {
     @State private var target: UUID?
     @AppStorage("queryFontSize", store: BrowserPreferences.defaults) private var font = 13.0
     @AppStorage("highlightSQL", store: BrowserPreferences.defaults) private var highlight = true
+    @AppStorage("indentSpaces", store: BrowserPreferences.defaults) private var indent = 4
     var body: some View {
         VStack(alignment: .leading) {
-            SQLTextEditor(text: $file.text, selection: $selection, fontSize: font, highlighting: highlight) { _ in }
+            SQLTextEditor(text: $file.text, selection: $selection, fontSize: font, highlighting: highlight, indent: indent) { _ in }
             HStack {
                 Picker("Workspace", selection: $target) {
                     Text("Choose a connection").tag(nil as UUID?)

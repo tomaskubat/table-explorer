@@ -8,6 +8,8 @@ struct DataGrid: NSViewRepresentable {
     let tab: WorkspaceTab
     @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFontSize = 14.0
 
+    @TableStylePreference private var style
+
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
@@ -21,8 +23,9 @@ struct DataGrid: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let table = scroll.documentView as! GridTable
+        style.apply(to: table, scroll: scroll)
         if let handler = table.handler, handler.tab === tab {
-            handler.update(table, fontSize: gridFontSize)
+            handler.update(table, fontSize: gridFontSize, style: style)
             return
         }
         let previousColumns = table.handler?.columns
@@ -32,7 +35,7 @@ struct DataGrid: NSViewRepresentable {
         handler.applying = true
         table.handler = handler; tab.grid = table
         table.delegate = handler; table.dataSource = handler
-        handler.update(table, fontSize: gridFontSize, switchingTab: true)
+        handler.update(table, fontSize: gridFontSize, style: style, switchingTab: true)
         if let origin = tab.gridOrigin {
             let clip = scroll.contentView
             clip.scroll(to: clip.constrainBoundsRect(CGRect(origin: origin, size: clip.bounds.size)).origin)
@@ -95,11 +98,11 @@ struct DataGrid: NSViewRepresentable {
             needsDisplay = true
         }
         override func keyDown(with event: NSEvent) {
-            if event.keyCode == 36, let handler, let row = handler.tab.selected,
+            if event.keyCode == 36, event.modifierFlags.intersection([.command,.control,.option,.shift]).isEmpty, let handler, let row = handler.tab.selected,
                let column = tableColumns.firstIndex(where: { $0.title == handler.tab.focusedColumn }) {
                 handler.edit(in: self, row: row, column: column); return
             }
-            if event.charactersIgnoringModifiers == " ", event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+            if KeyBinding(event: event) == Keymap.saved[.detail] {
                 handler?.workspace.showDetails.toggle()
             } else { super.keyDown(with: event) }
         }
@@ -139,13 +142,15 @@ struct DataGrid: NSViewRepresentable {
         var columns: [(index: Int, name: String)] = []
         var rows: [[SQLValue]] = []
         var markers: [Int: [String: String]] = [:]
+        var style = TableStyle()
         var fontSize = 12.0
         var applying = false
         var editing: (row: Int, column: String, draft: RowChange)?
         init(workspace: Workspace, tab: WorkspaceTab) { self.workspace = workspace; self.tab = tab }
 
-        func update(_ table: GridTable, fontSize: Double, switchingTab: Bool = false) {
-            let fontChanged = self.fontSize != fontSize
+        func update(_ table: GridTable, fontSize: Double, style: TableStyle, switchingTab: Bool = false) {
+            let fontChanged = self.fontSize != fontSize || self.style != style
+            self.style = style
             self.fontSize = fontSize
             let height = max(22, fontSize + 14)
             if table.rowHeight != height { table.rowHeight = height }
@@ -159,13 +164,13 @@ struct DataGrid: NSViewRepresentable {
                 for column in table.tableColumns { table.removeTableColumn(column) }
                 columns = visible.map { ($0.offset, $0.element) }
                 for column in columns {
-                    let model = GridAppearance.column(column.name, index: column.index, rows: display.rows, fontSize: fontSize,
+                    let model = GridAppearance.column(column.name, index: column.index, rows: display.rows, fontSize: fontSize, family: style.family,
                                                       savedWidth: tab.gridWidths[column.name])
                     table.addTableColumn(model)
                 }
             } else if switchingTab {
                 for (model, column) in zip(table.tableColumns, columns) {
-                    let width = tab.gridWidths[column.name] ?? GridAppearance.width(column.name, index: column.index, rows: display.rows, fontSize: fontSize)
+                    let width = tab.gridWidths[column.name] ?? GridAppearance.width(column.name, index: column.index, rows: display.rows, fontSize: fontSize, family: style.family)
                     if width != model.width { model.width = width }
                 }
             }
@@ -192,7 +197,7 @@ struct DataGrid: NSViewRepresentable {
             let value = rows[row][column], name = tableColumn.title
             let marker = markers[row]?[name]
             let prefix = marker == "minus.circle" ? "− " : marker == "plus.circle" ? "+ " : marker == nil ? "" : "✎ "
-            GridAppearance.show(value, in: cell, size: fontSize, prefix: prefix)
+            GridAppearance.show(value, in: cell, size: fontSize, prefix: prefix, style: style)
             cell.textField?.setAccessibilityIdentifier("grid-\(row)-\(name)")
             return cell
         }

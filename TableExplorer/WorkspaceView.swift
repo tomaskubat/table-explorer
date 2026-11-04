@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     let registry: WorkspaceRegistry
+    @AppStorage("loadingWallpaper", store: BrowserPreferences.defaults) private var wallpaper = true
     @State private var search = ""
     @State private var fieldSearch = ""
     @State private var closing: WorkspaceTab?
@@ -20,6 +21,24 @@ struct WorkspaceView: View {
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
         .frame(minWidth: 980, minHeight: 590)
+        .onChange(of: workspace.paneRequest) {
+            var panes: [Workspace.FocusArea] = []
+            if workspace.showItems { panes.append(.items) }
+            if let tab = workspace.active { panes.append(tab.object == nil ? .sql : .grid) }
+            if workspace.showDetails { panes.append(.detail) }
+            if workspace.showConsole { panes.append(.console) }
+            guard !panes.isEmpty else { return }
+            let i = workspace.focusArea.flatMap { panes.firstIndex(of: $0) } ?? 0
+            let next = panes[(i + workspace.paneDirection + panes.count) % panes.count]
+            if next == .grid { workspace.window?.makeFirstResponder(workspace.active?.grid) }
+            else if next == .sql {
+                @MainActor func editor(in view: NSView) -> NSView? {
+                    if view.accessibilityIdentifier() == "SQL Editor" { return view }
+                    return view.subviews.lazy.compactMap { editor(in: $0) }.first
+                }
+                if let root = workspace.window?.contentView, let editor = editor(in: root) { workspace.window?.makeFirstResponder(editor) }
+            } else { panelFocus = next }
+        }
         .onChange(of: panelFocus) { if let panelFocus { workspace.focusArea = panelFocus } }
         .background(WorkspaceWindowGuard(workspace: workspace, closeActiveTab: requestCloseActiveTab).frame(width: 0, height: 0))
         .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
@@ -70,6 +89,14 @@ struct WorkspaceView: View {
             }.padding(18).frame(width: 480, height: 300)
         }
         .task { await workspace.start() }
+        .task {
+            guard workspace.profile.driver == .mariaDB else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                guard BrowserPreferences.defaults.object(forKey: "keepAlive") as? Bool != false, workspace.connected, !workspace.hasRunningTasks else { continue }
+                do { try await workspace.session.ping() } catch { workspace.record(error) }
+            }
+        }
         .task(id: workspace.activeID) { await workspace.loadRestoredTab(workspace.active) }
     }
     private var layout: some View {
@@ -126,8 +153,8 @@ struct WorkspaceView: View {
                             .id(tab.object == nil ? tab.id : nil)
                     } else {
                         VStack(spacing: 9) {
-                            Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary)
-                            Text("No Open Tabs").font(.callout).foregroundStyle(.secondary)
+                            if wallpaper { Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary) }
+                            Text(workspace.loadingInitialCatalog ? "Loading database objects…" : "No Open Tabs").font(.callout).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
@@ -319,9 +346,9 @@ private struct WorkspaceTabView: View {
         Group {
             if !tab.showStructure, tab.object != nil, !tab.selectedRows.isEmpty, let total = tab.totalCount {
                 let count = total + tab.changes.filter { $0.original == nil }.count
-                Text("\(tab.selectedRows.count) of \(count) \(count == 1 ? "row" : "rows") selected")
+                Text("\(tab.selectedRows.count) of \(tab.countEstimated ? "≈" : "")\(count) \(count == 1 ? "row" : "rows") selected")
             }
-            else if tab.object != nil, let total = tab.totalCount { Text("\(tab.result.rows.count) of \(total) rows") }
+            else if tab.object != nil, let total = tab.totalCount { Text("\(tab.result.rows.count) of \(tab.countEstimated ? "≈" : "")\(total) rows") }
             else if tab.object != nil { Text("\(tab.result.rows.count) rows loaded") }
             else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")") }
         }.font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()

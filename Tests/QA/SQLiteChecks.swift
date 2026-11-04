@@ -73,6 +73,41 @@ import Synchronization
         try check((await open(profile)).tabs.isEmpty, "closing all tabs replaces the old session with an empty one")
     }
 
+    @MainActor private static func checkPreferences(profile: ConnectionProfile, session: DatabaseSession, database: String, support: URL) async throws {
+        let defaults = BrowserPreferences.defaults
+        let keys = ["csvQuoteAll", "csvDecimalComma", "csvLineEnding", "stateDirectory", "queryDirectory", "statementTimeout", "autoSaveDrafts"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, old) in zip(keys, originals) { if let old { defaults.set(old, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        defaults.set(true, forKey: "csvQuoteAll"); defaults.set(true, forKey: "csvDecimalComma"); defaults.set("CRLF", forKey: "csvLineEnding")
+        let csv = CSVSettings()
+        try check(csv.encode("hello") == "\"hello\"" && csv.lineEnding == "CRLF" && csv.decimalComma, "new exports inherit CSV quoting, decimal format and line ending")
+        let queries = support.appending(path: "AlternateQueries"), state = support.appending(path: "AlternateState")
+        defaults.set(queries.path, forKey: "queryDirectory"); defaults.set(state.path, forKey: "stateDirectory")
+        let book = QueryNotebook(directory: support, profile: profile.id)
+        let w = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "", notebook: book)
+        await w.start(); w.newQuery(text: "SELECT 1")
+        guard let tab = w.active else { throw BrowserError("Missing query") }
+        defaults.set(false, forKey: "autoSaveDrafts")
+        w.saveRecovery(tab); book.releaseDraft(tab.id)
+        try check(book.availableDrafts(in: database).isEmpty, "disabled draft autosave does not write edited SQL to recovery")
+        defaults.set(true, forKey: "autoSaveDrafts"); tab.sql = "SELECT 2"; w.saveRecovery(tab)
+        try check(book.availableDrafts(in: database).first?.sql == "SELECT 2", "enabled draft autosave stores edited SQL")
+        w.rememberOnClose()
+        try check(FileManager.default.fileExists(atPath: queries.appending(path: "Queries/" + profile.id.uuidString + ".json").path)
+                  && FileManager.default.fileExists(atPath: state.appending(path: "Workspaces/" + profile.id.uuidString + ".json").path),
+                  "query history and workspace files honor separate folder choices")
+        defaults.set(1, forKey: "statementTimeout")
+        await w.run(["WITH RECURSIVE x(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM x WHERE n < 100000000) SELECT sum(n) FROM x", "SELECT 999"], on: tab)
+        try check(tab.executions.count == 1 && tab.error?.contains("time limit") == true, "timeout interrupts real SQL and skips the rest of the script")
+        await w.run(["SELECT 42"], on: tab)
+        try check(tab.result.rows.first?.first == .integer("42"), "connection remains usable after query timeout")
+        defaults.set(0, forKey: "statementTimeout")
+        let slow = Task { await w.run(["WITH RECURSIVE x(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM x WHERE n < 100000000) SELECT sum(n) FROM x", "SELECT 999"], on: tab) }
+        while tab.cancellation == nil { await Task.yield() }
+        await w.stop(tab); await slow.value
+        try check(tab.executions.count == 1 && tab.result.rows.first?.first != .integer("999"), "manual Stop never starts the next statement in a script")
+    }
+
     private static func run() async throws {
         try checkSSHAddresses()
         let path = CommandLine.arguments[1]
@@ -85,6 +120,7 @@ import Synchronization
         let s = DatabaseSession()
         let target = try await s.open(profile, password: "")
         try await checkWorkspace(profile: profile, session: s, database: target, support: support)
+        try await checkPreferences(profile: profile, session: s, database: target, support: support)
         let objs = try await s.objects()
         let city = DatabaseObject(name: "mesto", kind: .table)
         try check(Set(objs) == [city, DatabaseObject(name: "zeme", kind: .table),
