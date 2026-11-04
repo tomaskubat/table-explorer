@@ -5,6 +5,22 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AC0000000000000000000062 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AC0000000000000000000061 /* Sparkle */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AC0000000000000000000063 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (AC0000000000000000000062 /* Sparkle in Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AC0000000000000000000060 /* Sparkle */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/sparkle-project/Sparkle"; requirement = {kind = exactVersion; version = 2.10.1; }; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AC0000000000000000000061 /* Sparkle */ = {isa = XCSwiftPackageProductDependency; package = AC0000000000000000000060 /* Sparkle */; productName = Sparkle; };
+/* End XCSwiftPackageProductDependency section */
+
 /* Begin PBXContainerItemProxy section */
 		AC0000000000000000000030 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -47,11 +63,12 @@
 		AC0000000000000000000010 /* ConnectionBrowser */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AC0000000000000000000041;
-			buildPhases = (AC0000000000000000000022 /* Embed MariaDB */, AC0000000000000000000020 /* Sources */, AC0000000000000000000023 /* Resources */);
+			buildPhases = (AC0000000000000000000022 /* Embed MariaDB */, AC0000000000000000000020 /* Sources */, AC0000000000000000000063 /* Frameworks */, AC0000000000000000000023 /* Resources */);
 			buildRules = ();
 			dependencies = ();
 			fileSystemSynchronizedGroups = (AC0000000000000000000004 /* ConnectionBrowser */);
 			name = ConnectionBrowser;
+			packageProductDependencies = (AC0000000000000000000061 /* Sparkle */);
 			productName = ConnectionBrowser;
 			productReference = AC0000000000000000000006 /* ConnectionBrowser.app */;
 			productType = "com.apple.product-type.application";
@@ -80,6 +97,7 @@
 			knownRegions = (en, Base);
 			mainGroup = AC0000000000000000000002;
 			preferredProjectObjectVersion = 77;
+			packageReferences = (AC0000000000000000000060 /* Sparkle */);
 			productRefGroup = AC0000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";

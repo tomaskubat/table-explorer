@@ -1,4 +1,5 @@
 import SwiftUI
+import Sparkle
 
 #if !arch(arm64)
 #error("Connection Browser requires Apple Silicon.")
@@ -7,9 +8,15 @@ import SwiftUI
 @main
 struct ConnectionBrowserApp: App {
     @State private var library = ConnectionLibrary()
-    @State private var workspaces = WorkspaceRegistry()
+    @State private var workspaces: WorkspaceRegistry
+    @StateObject private var updates: ApplicationUpdates
 
-    init() { NSWindow.allowsAutomaticWindowTabbing = false }
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+        let registry = WorkspaceRegistry()
+        _workspaces = State(initialValue: registry)
+        _updates = StateObject(wrappedValue: ApplicationUpdates(workspaces: registry))
+    }
 
     var body: some Scene {
         Window("Saved Connections", id: "connections") {
@@ -18,6 +25,18 @@ struct ConnectionBrowserApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1111, height: 826)
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                if updates.controller != nil {
+                    Button("Check for Updates…") { updates.controller?.checkForUpdates(nil) }
+                        .disabled(!updates.canCheck)
+                    Toggle("Automatically Check for Updates", isOn: Binding(
+                        get: { updates.automaticChecks },
+                        set: { updates.controller?.updater.automaticallyChecksForUpdates = $0 }
+                    ))
+                }
+            }
+        }
 
         WindowGroup("Workspace", for: UUID.self) { $id in
             if let id, let workspace = workspaces.sessions[id] {
@@ -50,6 +69,35 @@ struct ConnectionBrowserApp: App {
         .restorationBehavior(.disabled)
 
         Settings { PreferencesView(library: library) }
+    }
+}
+
+@MainActor private final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
+    private(set) var controller: SPUStandardUpdaterController?
+    @Published private(set) var canCheck = false
+    @Published private(set) var automaticChecks = false
+    private let workspaces: WorkspaceRegistry
+
+    init(workspaces: WorkspaceRegistry) {
+        self.workspaces = workspaces
+        super.init()
+        // Only distribution builds have a signing key. Development and UI test builds stay offline.
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+              Data(base64Encoded: key)?.count == 32 else { return }
+        let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
+        self.controller = controller
+        controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheck)
+        controller.updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticChecks)
+        controller.startUpdater()
+    }
+
+    func updaterShouldRelaunchApplication(_ updater: SPUUpdater) -> Bool {
+        guard workspaces.sessions.values.contains(where: { $0.hasRunningTasks || $0.hasDrafts || !$0.unsavedQueries.isEmpty || $0.window?.attachedSheet != nil }) else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Finish your database work before updating"
+        alert.informativeText = "Finish running operations, save or discard pending edits, and close any open dialogs. Then choose Check for Updates again."
+        alert.runModal()
+        return false
     }
 }
 

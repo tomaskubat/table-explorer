@@ -53,3 +53,11 @@ Zdroj [ikony aplikace](Design/Database.svg) lze upravit jako SVG. Příkaz `Scri
 Dvojklik na barevný pruh s názvem databáze zvětší pracovní okno na dostupnou plochu displeje. Další dvojklik obnoví původní rozměry.
 
 `Scripts/check-workspace-performance.sh` změří otevření osmi tabulek, 24 přepnutí mezi nimi a 40 změn velikosti okna. Spouští skutečné pracovní okno nad dočasnou databází SQLite se 160 tabulkami. Každá otevřená stránka má 300 řádků a 24 sloupců. Vypsané časy zahrnují rozložení a vykreslení v aplikaci. Pro srovnání dvou sestavení použij stejný displej a nech doběhnout ostatní UI testy.
+
+## Instalace a aktualizace
+
+[Stáhnout poslední vydání pro Apple Silicon](https://github.com/tomaskubat/table-explorer/releases/latest)
+
+Vydání publikuje GitHub Actions při odeslání nového rostoucího tagu `vX.Y.Z` (například `git tag v0.1.1` a `git push origin v0.1.1`). Po testech workflow zabalí aplikaci včetně MariaDB, OpenSSL a Sparkle, ověří přenositelnost i podpis rozbalené aplikace a až poté zveřejní ZIP, podepsaný `appcast.xml` a `SHA256SUMS.txt`. Nakonec ověří anonymní stažení souborů ze stejného kanálu jako instalované aplikace.
+
+Pro místní sestavení a kontrolu vydání spusť `Scripts/package-release.sh v0.1.1` a `Scripts/sign-release.sh v0.1.1`. Výstup najdeš v `.build/distribution/v0.1.1/`. Podepisování používá účet `local.connectionbrowser.app` v Klíčence nebo repository secret `SPARKLE_PRIVATE_KEY` v Actions. Veřejný klíč je v `Configuration/sparkle-public-key.txt`. Soukromý klíč zálohuj spolu s Klíčenkou. Pro budoucí vydání potřebuješ stejný klíč. Vývojové sestavení spuštěné z Xcode aktualizace nekontroluje.

@@ -3,6 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIconFile</key><string>Database.icns</string>
+    <key>SUFeedURL</key><string>https://github.com/tomaskubat/table-explorer/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>$(CONNECTION_BROWSER_UPDATE_KEY)</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAllowsAutomaticUpdates</key><false/>
+    <key>SUVerifyUpdateBeforeExtraction</key><true/>
+    <key>SURequireSignedFeed</key><true/>
+    <key>SUEnableSystemProfiling</key><false/>
     <key>CFBundleDocumentTypes</key>
     <array><dict>
         <key>CFBundleTypeName</key><string>SQL Document</string>

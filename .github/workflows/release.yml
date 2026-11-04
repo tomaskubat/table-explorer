@@ -1,0 +1,85 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: publish-connection-browser
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the version and build environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == arm64 ]]
+          xcodebuild -version
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > "$RUNNER_TEMP/versions"
+          python3 - "$RELEASE_TAG" "$RUNNER_TEMP/versions" <<'PY'
+          import pathlib, re, sys
+          pattern = r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+          tag = re.fullmatch(pattern, sys.argv[1])
+          if not tag:
+              sys.exit("Expected vX.Y.Z")
+          version = tuple(map(int, tag.groups()))
+          for previous in pathlib.Path(sys.argv[2]).read_text().splitlines():
+              old = re.fullmatch(pattern, previous)
+              if old and tuple(map(int, old.groups())) >= version:
+                  sys.exit(f"Release must be newer than {previous}")
+          PY
+
+      - name: Install the build dependency
+        run: brew install mariadb-connector-c
+
+      - name: Test SQLite and package the standalone app
+        run: |
+          Scripts/check-sqlite.sh
+          Scripts/package-release.sh "$RELEASE_TAG"
+
+      - name: Sign and verify the release
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: Scripts/sign-release.sh "$RELEASE_TAG"
+
+      - name: Publish the verified assets together
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd ".build/distribution/$RELEASE_TAG"
+          archive="ConnectionBrowser-${RELEASE_TAG#v}-arm64.zip"
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "Connection Browser ${RELEASE_TAG#v}" --notes "Stáhni ZIP pro Apple Silicon a rozbal aplikaci do složky Aplikace. Vyžaduje macOS 26 nebo novější." \
+            "$archive" appcast.xml SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+      - name: Verify anonymous downloads from the production feed
+        run: |
+          set -euo pipefail
+          verify="$RUNNER_TEMP/published"
+          mkdir "$verify"
+          archive="ConnectionBrowser-${RELEASE_TAG#v}-arm64.zip"
+          url="https://github.com/$GITHUB_REPOSITORY/releases"
+          for asset in "$archive" SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors "$url/download/$RELEASE_TAG/$asset" -o "$verify/$asset"
+          done
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors "$url/latest/download/appcast.xml" -o "$verify/appcast.xml"
+          cmp ".build/distribution/$RELEASE_TAG/SHA256SUMS.txt" "$verify/SHA256SUMS.txt"
+          (cd "$verify" && shasum -a 256 -c SHA256SUMS.txt)
+          swift Scripts/verify-update.swift "$verify" "${RELEASE_TAG#v}" Configuration/sparkle-public-key.txt
