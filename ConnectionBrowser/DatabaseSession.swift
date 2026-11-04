@@ -180,6 +180,7 @@ final class SQLiteHandle {
 actor DatabaseSession {
     private var maria: MariaHandle?
     private var sqlite: SQLiteHandle?
+    private var mariaEndpoint: (ConnectionProfile, String)?
 
     func open(_ profile: ConnectionProfile, password: String) throws -> String {
         close()
@@ -189,6 +190,7 @@ actor DatabaseSession {
                 let handle = try MariaHandle()
                 try handle.open(profile, password: password)
                 maria = handle
+                mariaEndpoint = (profile, password)
                 let name = try query("SELECT DATABASE()").rows.first?.first
                 return name == .null ? "" : name?.display ?? ""
             case .sqlite:
@@ -228,7 +230,27 @@ actor DatabaseSession {
         return false
     }
 
-    func close() { maria = nil; sqlite = nil }
+    func close() { maria = nil; sqlite = nil; mariaEndpoint = nil }
+
+    func runUserSQL(_ sql: String, cancellation: QueryCancellation, limit: Int) throws -> QueryResult {
+        if let sqlite {
+            // sqlite3_interrupt is specifically safe from another thread while
+            // the retained connection is executing sqlite3_step.
+            return try cancellation.perform(interrupt: { sqlite3_interrupt(sqlite.database) }) {
+                try query(sql, limit: limit)
+            }
+        }
+        if let maria, let (profile, password) = mariaEndpoint {
+            let threadID = mysql_thread_id(maria.connection)
+            return try cancellation.perform(interrupt: {
+                var target = profile; target.database = ""
+                let control = try MariaHandle()
+                try control.open(target, password: password)
+                _ = try control.query("KILL QUERY \(threadID)", limit: 0)
+            }) { try query(sql, limit: limit) }
+        }
+        throw BrowserError("This workspace is disconnected.", disconnected: true)
+    }
 
     func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {
         try read(sql, parameters: parameters, limit: limit, visit: nil)

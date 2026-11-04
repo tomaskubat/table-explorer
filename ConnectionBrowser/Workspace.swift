@@ -19,6 +19,8 @@ final class WorkspaceTab: Identifiable {
     var result = QueryResult()
     var error: String?
     var busy = false
+    var cancellation: QueryCancellation?
+    var stopRequested = false
     var offset = 0
     var limit = 300
     var selected: Int?
@@ -182,9 +184,11 @@ final class Workspace: Identifiable {
             tab.section = "DDL"; tab.showStructure = true
             return
         }
-        await load(tab)
+        var metadataError: String?
         do { tab.schema = try await session.schema(of: object, driver: profile.driver) }
-        catch { tab.error = error.localizedDescription }
+        catch { metadataError = error.localizedDescription }
+        await load(tab)
+        if let metadataError, tab.error == nil { tab.error = metadataError }
     }
 
     func loadStructure(_ tab: WorkspaceTab) async {
@@ -216,30 +220,52 @@ final class Workspace: Identifiable {
     }
     func load(_ tab: WorkspaceTab) async {
         guard let object = tab.object else { return }
+        let keyColumns = tab.schema?.key.map(\.name) ?? []
+        let previousKey = tab.selected.flatMap { index -> [SQLValue]? in
+            guard !keyColumns.isEmpty, tab.result.rows.indices.contains(index) else { return nil }
+            return keyColumns.compactMap { column in tab.result.columns.firstIndex(of: column).map { tab.result.rows[index][$0] } }
+        }
         let request = UUID()
         tab.requestID = request; tab.busy = true; tab.error = nil
         defer { if tab.requestID == request { tab.busy = false } }
         do {
             let page = try await session.page(of: object, filters: tab.appliedFilters, sortColumn: tab.sortColumn,
-                                              descending: tab.descending, offset: tab.offset, limit: tab.limit)
+                                              descending: tab.descending, offset: tab.offset, limit: tab.limit, keyColumns: keyColumns)
             guard request == tab.requestID else { return }
             log.append(page.sql)
-            tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset; tab.selected = nil
+            tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset
+            let keyIndices = keyColumns.compactMap(page.result.columns.firstIndex)
+            tab.selected = previousKey.flatMap { key in
+                page.result.rows.firstIndex { row in keyIndices.map { row[$0] } == key }
+            }
         } catch {
             guard request == tab.requestID else { return }
             tab.error = error.localizedDescription; log.append(error.localizedDescription); record(error)
         }
     }
+    func stop(_ tab: WorkspaceTab) async {
+        guard let cancellation = tab.cancellation else { return }
+        tab.stopRequested = true
+        do { try await Task.detached { try cancellation.stop() }.value }
+        catch {
+            if tab.cancellation === cancellation {
+                tab.error = "The query is still running. Stop request failed: " + error.localizedDescription
+            }
+        }
+    }
     func run(_ statements: [String], on tab: WorkspaceTab) async {
         guard connected, !tab.busy else { return }
-        tab.busy = true; tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
-        defer { tab.busy = false }
+        let cancellation = QueryCancellation()
+        tab.busy = true; tab.stopRequested = false; tab.cancellation = cancellation
+        tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
+        defer { tab.busy = false; tab.cancellation = nil; tab.stopRequested = false }
         for sql in statements {
+            if cancellation.wasRequested { break }
             guard connected else { tab.error = "This workspace is disconnected."; return }
             let start = Date()
             var result = QueryResult()
             var failure: String?
-            do { result = try await session.query(sql) }
+            do { result = try await session.runUserSQL(sql, cancellation: cancellation, limit: 1000) }
             catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
             let hidden = QueryNotebook.containsCredentials(sql)

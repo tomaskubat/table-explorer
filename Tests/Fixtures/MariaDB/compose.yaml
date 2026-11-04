@@ -13,7 +13,8 @@ services:
     tmpfs:
       - /var/lib/mysql
     volumes:
-      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+      - ./seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro
+      - ./scale.sql:/docker-entrypoint-initdb.d/20-scale.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 2s

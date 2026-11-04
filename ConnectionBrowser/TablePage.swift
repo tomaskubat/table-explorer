@@ -20,7 +20,7 @@ struct TableRead: Sendable {
     let from: String
     let order: String
     let parameters: [SQLValue]
-    init(object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool) {
+    init(object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool, keyColumns: [String] = []) {
         let table = DatabaseSession.identifier(object.name)
         var parameters: [SQLValue] = []
         let clauses = filters.filter(\.enabled).compactMap { filter -> String? in
@@ -38,15 +38,17 @@ struct TableRead: Sendable {
         }
         let predicate = clauses.isEmpty ? "" : " WHERE " + clauses.joined(separator: " AND ")
         self.from = " FROM " + table + predicate
-        self.order = sortColumn.map { " ORDER BY " + DatabaseSession.identifier($0) + (descending ? " DESC" : " ASC") } ?? ""
+        var terms = sortColumn.map { [DatabaseSession.identifier($0) + (descending ? " DESC" : " ASC")] } ?? []
+        terms += keyColumns.filter { $0 != sortColumn }.map(DatabaseSession.identifier)
+        self.order = terms.isEmpty ? "" : " ORDER BY " + terms.joined(separator: ", ")
         self.parameters = parameters
     }
 }
 
 extension DatabaseSession {
     func page(of object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool,
-              offset: Int, limit: Int) throws -> TablePage {
-        let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending)
+              offset: Int, limit: Int, keyColumns: [String]) throws -> TablePage {
+        let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending, keyColumns: keyColumns)
         let countResult = try query("SELECT COUNT(*)" + read.from, parameters: read.parameters)
         guard let cell = countResult.rows.first?.first, let count = Int(cell.display) else { throw BrowserError("Could not read the filtered row count.") }
         let size = min(max(1, limit), 10000)

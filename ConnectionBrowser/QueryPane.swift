@@ -27,6 +27,12 @@ struct QueryPane: View {
             }
             Button("Save Favorite") { favoriteSheet = true }
         }.disabled(tab.busy || !workspace.connected || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if tab.cancellation != nil {
+            HStack {
+                Button("Stop Query") { Task { await workspace.stop(tab) } }.disabled(tab.stopRequested)
+                if tab.stopRequested { Text("Stop requested. Waiting for the database…").font(.caption) }
+            }
+        }
         if tab.executions.count > 1 {
             Picker("Statement Result", selection: Binding(get: { tab.executionIndex }, set: { tab.selectExecution($0) })) {
                 ForEach(tab.executions.indices, id: \.self) { i in Text("Statement \(i + 1)").tag(i) }

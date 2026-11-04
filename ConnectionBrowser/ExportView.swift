@@ -91,7 +91,7 @@ struct ExportView: View {
         let rows: [[SQLValue]]
         var read: TableRead?
         if (scope == .table || scope == .filtered), let object = tab.object {
-            read = TableRead(object: object, filters: scope == .filtered ? tab.appliedFilters : [], sortColumn: tab.sortColumn, descending: tab.descending)
+            read = TableRead(object: object, filters: scope == .filtered ? tab.appliedFilters : [], sortColumn: tab.sortColumn, descending: tab.descending, keyColumns: tab.schema?.key.map(\.name) ?? [])
             rows = []
         } else {
             let selected = scope == .selected ? tab.selected.map { [$0] } ?? [] : Array(tab.result.rows.indices)
