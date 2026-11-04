@@ -70,7 +70,7 @@ publish() {
     state=$(release_state)
     if [[ $state == new ]]; then
         gh release create "$tag" --repo "$repo" --verify-tag --draft --title "Connection Browser $version" \
-            --notes "Stáhni ZIP pro Apple Silicon a rozbal aplikaci do složky Aplikace. Vyžaduje macOS 26 nebo novější."
+            --notes "Requires a Mac with Apple silicon running macOS 26 or later. Download $archive from Assets, unzip it, and drag ConnectionBrowser.app into Applications."
     fi
     [[ $(gh release view "$tag" --repo "$repo" --json isDraft --jq .isDraft) == true ]] || die "Only a draft may be updated."
     gh release upload "$tag" --repo "$repo" --clobber "$out/$archive" "$out/appcast.xml" "$out/SHA256SUMS.txt"
