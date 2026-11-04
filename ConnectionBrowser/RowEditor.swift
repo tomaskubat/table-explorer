@@ -11,10 +11,7 @@ struct RowActions: View {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 3) { editingButtons; changeButtons }
-            VStack(alignment: .leading) { HStack { editingButtons }; HStack { changeButtons } }
-        }
+        HStack(spacing: 3) { editingButtons; changeButtons }
         .controlSize(.small)
         .sheet(item: $tab.editor) { draft in
             if let schema = tab.schema { RowEditor(draft: draft, schema: schema) { tab.stage($0) } }

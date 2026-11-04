@@ -81,7 +81,7 @@ struct WorkspaceCommands: Commands {
             Button("Previous Page") { changePage(forward: false) }.keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(!gridFocused || activeTab?.busy != false || (activeTab?.offset ?? 0) == 0)
             Button("Next Page") { changePage(forward: true) }.keyboardShortcut(.rightArrow, modifiers: .command)
-                .disabled(!gridFocused || activeTab?.busy != false || activeTab.map { $0.offset + $0.result.rows.count >= $0.totalCount } != false)
+                .disabled(!gridFocused || activeTab?.busy != false || activeTab?.hasNextPage != true)
             Button("Preview Changes…") { activeTab?.previewShown = true }.keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(activeTab?.changes.isEmpty != false || workspace?.connected != true)
             Divider()

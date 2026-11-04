@@ -69,9 +69,15 @@ struct ResultTable: NSViewRepresentable {
         table.gridStyleMask = [.solidVerticalGridLineMask]
     }
 
-    static func column(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double) -> NSTableColumn {
+    static func column(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double, savedWidth: CGFloat? = nil) -> NSTableColumn {
         let model = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(String(index)))
         model.title = name; model.minWidth = 50; model.headerCell.alignment = .center
+        model.width = savedWidth ?? width(name, index: index, rows: rows, fontSize: fontSize)
+        model.resizingMask = .userResizingMask
+        return model
+    }
+
+    static func width(_ name: String, index: Int, rows: [[SQLValue]], fontSize: Double) -> CGFloat {
         // Sample only on creation. Paging preserves manual column widths.
         let font = NSFont.systemFont(ofSize: fontSize)
         let widths = rows.prefix(40).compactMap { row -> CGFloat? in
@@ -82,23 +88,26 @@ struct ResultTable: NSViewRepresentable {
             return (sample as NSString).size(withAttributes: [.font: font]).width
         }
         let header = (name as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width
-        model.width = min(260, max(68, ceil(max(header, widths.max() ?? 0)) + 18))
-        model.resizingMask = .userResizingMask
-        return model
+        return min(260, max(68, ceil(max(header, widths.max() ?? 0)) + 18))
     }
 
     static func cell(in table: NSTableView) -> NSTableCellView {
         let id = NSUserInterfaceItemIdentifier("GridValue")
         if let reused = table.makeView(withIdentifier: id, owner: nil) as? NSTableCellView { return reused }
-        let cell = NSTableCellView(), field = NSTextField(labelWithString: "")
-        cell.identifier = id; field.translatesAutoresizingMaskIntoConstraints = false
+        let cell = ValueCell(), field = NSTextField(labelWithString: "")
+        cell.identifier = id
         field.lineBreakMode = .byTruncatingTail; cell.textField = field; cell.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 3),
-            field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -3),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
         return cell
+    }
+
+    private final class ValueCell: NSTableCellView {
+        override func layout() {
+            super.layout()
+            guard let field = textField, let font = field.font else { return }
+            let height = ceil(font.ascender - font.descender + font.leading) + 2
+            field.frame = CGRect(x: 3, y: floor((bounds.height - height) / 2),
+                                 width: max(0, bounds.width - 6), height: height)
+        }
     }
 
     static func show(_ value: SQLValue, in cell: NSTableCellView, size: Double, prefix: String = "") {

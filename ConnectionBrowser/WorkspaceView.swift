@@ -110,7 +110,8 @@ struct WorkspaceView: View {
                         Divider()
                     }
                     if let tab = workspace.active {
-                        WorkspaceTabView(workspace: workspace, tab: tab).id(tab.id)
+                        WorkspaceTabView(workspace: workspace, tab: tab)
+                            .id(tab.object == nil ? tab.id : nil)
                     } else {
                         VStack(spacing: 9) {
                             Image(systemName: "cylinder.split.1x2").font(.system(size: 42, weight: .thin)).foregroundStyle(.secondary)
@@ -183,9 +184,10 @@ struct WorkspaceView: View {
 }
 
 private struct WorkspaceTabView: View {
-    @State private var importShown = false
-    @State private var exportShown = false
-    @State private var exportScope: ExportScope?
+    private struct StructureRequest: Equatable {
+        let tabID: UUID
+        let section: String?
+    }
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
     private var hasDataMode: Bool { tab.object?.kind == .table || tab.object?.kind == .view }
@@ -214,22 +216,20 @@ private struct WorkspaceTabView: View {
                 }
             }
             Divider()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 5) { modeAndRows; Spacer(minLength: 0); status; Spacer(minLength: 0); pageControls }
-                VStack(spacing: 3) {
-                    HStack(spacing: 4) { modeAndRows; Spacer(minLength: 0); status }
-                    HStack(spacing: 4) { Spacer(); pageControls }
-                }
+            WorkspaceFooterLayout {
+                HStack(spacing: 5) { modeAndRows }
+                HStack(spacing: 0) { status }
+                HStack(spacing: 5) { pageControls }
             }
             .lineLimit(1).padding(.horizontal, 6).padding(.vertical, 5).background(BrowserChrome.panel)
         }.controlSize(.small)
-        .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
-        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab, initialScope: exportScope) }
+        .sheet(isPresented: $tab.importShown) { ImportCSVView(workspace: workspace, tab: tab) }
+        .sheet(isPresented: $tab.exportShown) { ExportView(workspace: workspace, tab: tab, initialScope: tab.exportScope) }
         .onChange(of: tab.transfer, initial: true) {
             switch tab.transfer {
-            case .importCSV: importShown = true
-            case .exportPage: exportScope = .result; exportShown = true
-            case .exportTable: exportScope = .table; exportShown = true
+            case .importCSV: tab.importShown = true
+            case .exportPage: tab.exportScope = .result; tab.exportShown = true
+            case .exportTable: tab.exportScope = .table; tab.exportShown = true
             case nil: break
             }
             tab.transfer = nil
@@ -244,10 +244,15 @@ private struct WorkspaceTabView: View {
             let identities = drafts.prefix(8).map { draft in keys.map { $0 + "=" + (draft.original?[$0]?.display ?? "new") }.joined(separator: ", ") }
             Text(workspace.profile.name + " / " + workspace.database + "\n" + identities.joined(separator: "\n"))
         }
-        .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }
+        .task(id: StructureRequest(tabID: tab.id, section: tab.showStructure ? tab.section : nil)) {
+            if tab.showStructure { await workspace.loadStructure(tab) }
+        }
     }
     @ViewBuilder private var activity: some View {
-        if tab.busy { ProgressView("Running query…").controlSize(.small) }
+        if tab.busy {
+            let counting = tab.object != nil && tab.totalCount == nil && !tab.result.columns.isEmpty
+            ProgressView(counting ? "Counting rows…" : "Running query…").controlSize(.small)
+        }
         if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
     }
 
@@ -267,11 +272,12 @@ private struct WorkspaceTabView: View {
 
     @ViewBuilder private var status: some View {
         Group {
-            if !tab.showStructure, tab.object != nil, !tab.selectedRows.isEmpty {
-                let count = tab.totalCount + tab.changes.filter { $0.original == nil }.count
+            if !tab.showStructure, tab.object != nil, !tab.selectedRows.isEmpty, let total = tab.totalCount {
+                let count = total + tab.changes.filter { $0.original == nil }.count
                 Text("\(tab.selectedRows.count) of \(count) \(count == 1 ? "row" : "rows") selected")
             }
-            else if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows") }
+            else if tab.object != nil, let total = tab.totalCount { Text("\(tab.result.rows.count) of \(total) rows") }
+            else if tab.object != nil { Text("\(tab.result.rows.count) rows loaded") }
             else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")") }
         }.font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()
     }
@@ -279,11 +285,11 @@ private struct WorkspaceTabView: View {
     @ViewBuilder private var pageControls: some View {
         if hasDataMode && !tab.showStructure { TableControls(workspace: workspace, tab: tab) }
         if tab.object?.kind == .table {
-            Button("Import CSV", systemImage: "square.and.arrow.down") { importShown = true }
+            Button("Import CSV", systemImage: "square.and.arrow.down") { tab.importShown = true }
                 .labelStyle(.iconOnly).help("Import CSV")
                 .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
         }
-        Button("Export Data", systemImage: "square.and.arrow.up") { exportScope = nil; exportShown = true }
+        Button("Export Data", systemImage: "square.and.arrow.up") { tab.exportScope = nil; tab.exportShown = true }
             .labelStyle(.iconOnly).help("Export Data")
             .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
         if hasDataMode && !tab.showStructure {
@@ -309,7 +315,7 @@ private struct WorkspaceTabView: View {
                 .menuIndicator(.hidden).fixedSize().accessibilityLabel("Page Size: \(tab.limit)").help("Page size and sorting")
             Button("Next Page", systemImage: "chevron.right") {
                 tab.offset += tab.limit; Task { await workspace.load(tab) }
-            }.labelStyle(.iconOnly).help("Next page").disabled(tab.offset + tab.result.rows.count >= tab.totalCount || tab.busy)
+            }.labelStyle(.iconOnly).help("Next page").disabled(!tab.hasNextPage || tab.busy)
         }
     }
 
@@ -317,4 +323,42 @@ private struct WorkspaceTabView: View {
         tab.sortColumn = column; tab.descending = descending; tab.offset = 0; Task { await workspace.load(tab) }
     }
 
+}
+
+/// Keep one set of controls (and sheet presenters) as the footer wraps.
+private struct WorkspaceFooterLayout: Layout {
+    func makeCache(subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) -> CGSize {
+        let width = proposal.width ?? cache.reduce(10) { $0 + $1.width }
+        return CGSize(width: width, height: positions(width: width, sizes: cache).map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) {
+        for (view, frame) in zip(subviews, positions(width: bounds.width, sizes: cache)) {
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                       anchor: .topLeading, proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func positions(width: CGFloat, sizes: [CGSize]) -> [CGRect] {
+        let tools = sizes[0], status = sizes[1], page = sizes[2]
+        if tools.width + status.width + page.width + 10 <= width {
+            let height = sizes.map(\.height).max() ?? 0
+            let gap = (width - tools.width - status.width - page.width) / 2
+            return zip(sizes, [0, tools.width + gap, width - page.width]).map { size, x in
+                CGRect(origin: CGPoint(x: x, y: (height - size.height) / 2), size: size)
+            }
+        }
+        let stacked = tools.width + status.width + 5 > width
+        let height = stacked ? tools.height : max(tools.height, status.height)
+        let statusY = stacked ? height + 3 : (height - status.height) / 2
+        return [
+            CGRect(origin: CGPoint(x: 0, y: (height - tools.height) / 2), size: tools),
+            CGRect(origin: CGPoint(x: width - status.width, y: statusY), size: status),
+            CGRect(origin: CGPoint(x: width - page.width, y: max(height, statusY + status.height) + 3), size: page)
+        ]
+    }
 }

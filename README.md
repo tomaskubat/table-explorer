@@ -49,3 +49,7 @@ After reconnecting, File → Recover SQL Draft opens locally recovered text for 
 SQLite ověříš příkazem `Scripts/check-sqlite.sh`. Skript si vytvoří dočasnou testovací databázi.
 
 Zdroj [ikony aplikace](Design/Database.svg) lze upravit jako SVG. Příkaz `Scripts/make-app-icon.sh` z něj vytvoří macOS prostředek, který Xcode přibalí do aplikace.
+
+Dvojklik na barevný pruh s názvem databáze zvětší pracovní okno na dostupnou plochu displeje. Další dvojklik obnoví původní rozměry.
+
+`Scripts/check-workspace-performance.sh` změří otevření osmi tabulek, 24 přepnutí mezi nimi a 40 změn velikosti okna. Spouští skutečné pracovní okno nad dočasnou databází SQLite se 160 tabulkami. Každá otevřená stránka má 300 řádků a 24 sloupců. Vypsané časy zahrnují rozložení a vykreslení v aplikaci. Pro srovnání dvou sestavení použij stejný displej a nech doběhnout ostatní UI testy.

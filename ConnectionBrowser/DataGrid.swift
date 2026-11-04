@@ -8,15 +8,11 @@ struct DataGrid: NSViewRepresentable {
     let tab: WorkspaceTab
     @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var gridFontSize = 14.0
 
-    func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace, tab: tab) }
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true; scroll.borderType = .noBorder
         let table = GridTable()
-        table.handler = context.coordinator
-        tab.grid = table
-        table.delegate = context.coordinator; table.dataSource = context.coordinator
         table.allowsMultipleSelection = true; table.allowsEmptySelection = true
         GridAppearance.configure(table)
         table.setAccessibilityLabel("Data Grid"); table.setAccessibilityIdentifier("Data Grid")
@@ -25,11 +21,44 @@ struct DataGrid: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let table = scroll.documentView as! GridTable
-        context.coordinator.update(table, fontSize: gridFontSize)
+        if let handler = table.handler, handler.tab === tab {
+            handler.update(table, fontSize: gridFontSize)
+            return
+        }
+        let previousColumns = table.handler?.columns
+        table.releaseTab()
+        let handler = GridDelegate(workspace: workspace, tab: tab)
+        handler.columns = previousColumns ?? []
+        handler.applying = true
+        table.handler = handler; tab.grid = table
+        table.delegate = handler; table.dataSource = handler
+        handler.update(table, fontSize: gridFontSize, switchingTab: true)
+        if let origin = tab.gridOrigin {
+            let clip = scroll.contentView
+            clip.scroll(to: clip.constrainBoundsRect(CGRect(origin: origin, size: clip.bounds.size)).origin)
+            scroll.reflectScrolledClipView(clip)
+        } else if previousColumns != nil {
+            // AppKit's top position allows for a floating header above the first row.
+            table.scrollToBeginningOfDocument(nil)
+        }
+    }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: ()) {
+        (scroll.documentView as? GridTable)?.releaseTab()
     }
 
     final class GridTable: NSTableView {
-        weak var handler: Coordinator?
+        var handler: GridDelegate?
+        func releaseTab() {
+            guard let handler else { return }
+            if handler.editing != nil { window?.endEditing(for: self) }
+            let tab = handler.tab
+            for column in tableColumns { tab.gridWidths[column.title] = column.width }
+            tab.gridOrigin = enclosingScrollView?.contentView.bounds.origin
+            if tab.grid === self { tab.grid = nil }
+            handler.applying = true
+            delegate = nil; dataSource = nil
+            self.handler = nil
+        }
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
             if result { handler?.workspace.focusArea = .grid }
@@ -104,7 +133,7 @@ struct DataGrid: NSViewRepresentable {
         }
     }
 
-    @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+    @MainActor final class GridDelegate: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
         let workspace: Workspace
         let tab: WorkspaceTab
         var columns: [(index: Int, name: String)] = []
@@ -115,10 +144,11 @@ struct DataGrid: NSViewRepresentable {
         var editing: (row: Int, column: String, draft: RowChange)?
         init(workspace: Workspace, tab: WorkspaceTab) { self.workspace = workspace; self.tab = tab }
 
-        func update(_ table: GridTable, fontSize: Double) {
+        func update(_ table: GridTable, fontSize: Double, switchingTab: Bool = false) {
             let fontChanged = self.fontSize != fontSize
             self.fontSize = fontSize
-            table.rowHeight = max(22, fontSize + 14)
+            let height = max(22, fontSize + 14)
+            if table.rowHeight != height { table.rowHeight = height }
             let display = tab.displayed
             let visible = display.columns.enumerated().filter { !tab.hiddenColumns.contains($0.element) }
             let newMarkers = tab.cellMarkers
@@ -129,11 +159,17 @@ struct DataGrid: NSViewRepresentable {
                 for column in table.tableColumns { table.removeTableColumn(column) }
                 columns = visible.map { ($0.offset, $0.element) }
                 for column in columns {
-                    let model = GridAppearance.column(column.name, index: column.index, rows: display.rows, fontSize: fontSize)
+                    let model = GridAppearance.column(column.name, index: column.index, rows: display.rows, fontSize: fontSize,
+                                                      savedWidth: tab.gridWidths[column.name])
                     table.addTableColumn(model)
                 }
+            } else if switchingTab {
+                for (model, column) in zip(table.tableColumns, columns) {
+                    let width = tab.gridWidths[column.name] ?? GridAppearance.width(column.name, index: column.index, rows: display.rows, fontSize: fontSize)
+                    if width != model.width { model.width = width }
+                }
             }
-            if changedColumns || fontChanged || display.rows != rows || markers != newMarkers {
+            if switchingTab || changedColumns || fontChanged || display.rows != rows || markers != newMarkers {
                 rows = display.rows; markers = newMarkers; table.reloadData()
             }
             let indices = IndexSet(tab.selectedRows.filter(rows.indices.contains))

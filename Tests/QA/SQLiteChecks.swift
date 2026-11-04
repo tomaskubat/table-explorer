@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 @main struct DriverCheck {
     static func check(_ ok: Bool, _ label: String) throws {
@@ -28,9 +29,23 @@ import Foundation
         try check(last.result.rows.map { $0[3] } == [.text("")], "empty string on last page")
         let filtered = try await s.page(of: city, filters: [.init(column:"poznamka",operation:.isNull)], sortColumn:nil, descending:false, offset:0,limit:10,keyColumns:["id"])
         try check(filtered.result.rows.map { $0[1] } == [.text("Brno")], "IS NULL excludes empty text")
+        try check(filtered.count == 1 && filtered.statements.count == 1, "short filtered first page has an exact total without a COUNT query")
+        let pastEnd = try await s.page(of: city, filters: [], sortColumn: nil, descending: false, offset: 100, limit: 2, keyColumns: ["id"])
+        try check(pastEnd.offset == 2 && pastEnd.count == 3 && pastEnd.result.rows == last.result.rows, "an out-of-range page still returns the last page")
         func execute(_ sql: String) async throws -> QueryResult {
             try await s.runUserSQL(sql, on: target, cancellation: QueryCancellation(), limit: 50).results[0]
         }
+        _ = try await execute("CREATE TEMP VIEW qa_count_failure AS SELECT id FROM mesto WHERE CASE id WHEN 3 THEN abs(-9223372036854775808) ELSE 1 END")
+        let preview = Mutex<[[SQLValue]]>([])
+        var countFailed = false
+        do {
+            _ = try await s.page(of: DatabaseObject(name: "qa_count_failure", kind: .view), filters: [], sortColumn: nil,
+                                 descending: false, offset: 0, limit: 2, keyColumns: ["id"]) { result in
+                preview.withLock { $0 = result.rows }
+            }
+        } catch { countFailed = error.localizedDescription.contains("overflow") }
+        try check(countFailed && preview.withLock { $0 == [[.integer("1")], [.integer("2")]] },
+                  "the first two rows are delivered before COUNT reaches the failing third record")
         try check(try await execute("SELECT count(*) AS n FROM mesto").rows == [[.integer("3")]], "SQL count = 3")
         try check(try await execute("SELECT nazev FROM mesto ORDER BY id").rows.map { $0[0].display } == ["Brno","Košice","Graz"], "ordered city names")
         var failed = false

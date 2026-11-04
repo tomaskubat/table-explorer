@@ -34,6 +34,8 @@ struct WorkspaceTitleBar: View {
             .padding(.horizontal, 5).frame(height: 22)
             .background(statusColor.opacity(workspace.profile.driver == .sqlite && workspace.profile.tagColor == nil ? 0.9 : 0.18), in: RoundedRectangle(cornerRadius: 3))
             .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(BrowserChrome.line, lineWidth: 0.7) }
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture(count: 2).onEnded { workspace.window?.zoom(nil) })
             .gesture(WindowDragGesture())
             tool("Open Anything", "magnifyingglass") { workspace.objectSearchShown = true }.disabled(!workspace.connected)
             tool("Workspaces", "square.grid.2x2") { openWindow(id: "workspaces") }

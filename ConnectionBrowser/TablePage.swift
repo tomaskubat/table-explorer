@@ -52,16 +52,35 @@ struct TableRead: Sendable {
 
 extension DatabaseSession {
     func page(of object: DatabaseObject, filters: [ColumnFilter], sortColumn: String?, descending: Bool,
-              offset: Int, limit: Int, keyColumns: [String]) throws -> TablePage {
+              offset: Int, limit: Int, keyColumns: [String],
+              firstRows: (@Sendable (QueryResult) -> Void)? = nil) throws -> TablePage {
         let read = TableRead(object: object, filters: filters, sortColumn: sortColumn, descending: descending, keyColumns: keyColumns)
-        let countStatement = ConsoleEntry(text: "SELECT COUNT(*)" + read.from)
-        let countResult = try query(countStatement.text, parameters: read.parameters)
-        guard let cell = countResult.rows.first?.first, let count = Int(cell.display) else { throw BrowserError("Could not read the filtered row count.") }
         let size = min(max(1, limit), 10000)
+        var statements: [ConsoleEntry] = []
+        func select(at start: Int) throws -> QueryResult {
+            let sql = "SELECT *" + read.from + read.order + " LIMIT \(size) OFFSET \(start)"
+            statements.append(ConsoleEntry(text: sql))
+            return try query(sql, parameters: read.parameters, limit: size)
+        }
+        func countRows() throws -> Int {
+            let sql = "SELECT COUNT(*)" + read.from
+            statements.append(ConsoleEntry(text: sql))
+            guard let cell = try query(sql, parameters: read.parameters).rows.first?.first, let count = Int(cell.display)
+            else { throw BrowserError("Could not read the filtered row count.") }
+            return count
+        }
+        if offset <= 0 {
+            let rows = try select(at: 0)
+            var count = rows.rows.count
+            if count == size {
+                firstRows?(rows)
+                count = try countRows()
+            }
+            return TablePage(result: rows, count: count, offset: 0, statements: statements)
+        }
+        let count = try countRows()
         let start = min(max(offset, 0), (max(count - 1, 0) / size) * size)
-        let sql = "SELECT *" + read.from + read.order + " LIMIT \(size) OFFSET \(start)"
-        let selectStatement = ConsoleEntry(text: sql)
-        return try TablePage(result: query(sql, parameters: read.parameters, limit: size), count: count,
-                             offset: start, statements: [countStatement, selectStatement])
+        let rows = try select(at: start)
+        return TablePage(result: rows, count: count, offset: start, statements: statements)
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 final class WorkspaceInteractionTests: XCTestCase {
@@ -23,6 +24,57 @@ final class WorkspaceInteractionTests: XCTestCase {
         XCTAssertTrue(city.waitForExistence(timeout: 5)); city.click()
         XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 4))
         try run(window)
+    }
+
+    @MainActor func testDoubleClickOnConnectionStatusFillsScreenAndRestoresWindow() throws {
+        continueAfterFailure = false
+        try inCatalog { window in
+            let primary = try XCTUnwrap(NSScreen.screens.first)
+            let original = window.frame
+            let visible = try XCTUnwrap(NSScreen.screens.map { screen in
+                let f = screen.visibleFrame
+                return CGRect(x: f.minX, y: primary.frame.maxY - f.maxY, width: f.width, height: f.height)
+            }.first { $0.contains(CGPoint(x: original.midX, y: original.midY)) })
+            let status = window.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "SQLite : QA :")).firstMatch
+            XCTAssertTrue(status.exists)
+            func doubleClickStatus() { status.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleClick() }
+            // Start unzoomed even if a previous run left the workspace maximized.
+            if abs(window.frame.width - visible.width) < 3 {
+                let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -3, dy: -3))
+                corner.click(forDuration: 0.15, thenDragTo: corner.withOffset(CGVector(dx: -120, dy: -70)))
+            }
+            let start = window.frame
+            doubleClickStatus()
+            XCTAssertEqual(window.frame.width, visible.width, accuracy: 3)
+            XCTAssertEqual(window.frame.height, visible.height, accuracy: 3)
+            doubleClickStatus()
+            XCTAssertEqual(window.frame.minX, start.minX, accuracy: 3)
+            XCTAssertEqual(window.frame.minY, start.minY, accuracy: 3)
+            XCTAssertEqual(window.frame.width, start.width, accuracy: 3)
+            XCTAssertEqual(window.frame.height, start.height, accuracy: 3)
+        }
+    }
+
+    @MainActor func testSwitchingTablesKeepsTheirSelectionAndDraftsSeparate() throws {
+        continueAfterFailure = false
+        try inCatalog { w in
+            let app = XCUIApplication()
+            let name = w.staticTexts["grid-0-nazev"]
+            name.doubleClick()
+            app.typeText("Draft city"); app.typeKey(.return, modifierFlags: [])
+            XCTAssertTrue(w.buttons["Preview Changes"].waitForExistence(timeout: 3))
+            w.staticTexts["zeme"].click()
+            XCTAssertTrue(w.staticTexts["grid-0-kod"].waitForExistence(timeout: 4))
+            XCTAssertEqual(name.value as? String, "Rakousko")
+            XCTAssertFalse(w.buttons["Preview Changes"].exists)
+            w.staticTexts["grid-1-kod"].click()
+            w.buttons["mesto"].click()
+            XCTAssertEqual(name.value as? String, "✎ Draft city")
+            XCTAssertTrue(w.buttons["Preview Changes"].exists)
+            w.buttons["zeme"].click()
+            XCTAssertTrue(w.staticTexts["1 of 3 rows selected"].exists)
+            XCTAssertEqual(w.staticTexts["detail-value-0"].value as? String, "CZ")
+        }
     }
 
     @MainActor func testDraggingConsoleResizesBothWaysAndSurvivesToggling() throws {

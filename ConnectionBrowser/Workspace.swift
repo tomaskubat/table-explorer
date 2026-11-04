@@ -50,11 +50,14 @@ final class WorkspaceTab: Identifiable {
     var focusedRow: Int?
     var focusedColumn: String?
     @ObservationIgnored weak var grid: DataGrid.GridTable?
+    @ObservationIgnored var gridWidths: [String: CGFloat] = [:]
+    @ObservationIgnored var gridOrigin: CGPoint?
     var selected: Int? {
         get { if let focusedRow, selectedRows.contains(focusedRow) { return focusedRow }; return selectedRows.min() }
         set { selectedRows = newValue.map { [$0] } ?? []; focusedRow = newValue }
     }
-    var totalCount = 0
+    var totalCount: Int?
+    var hasNextPage: Bool { totalCount.map { offset + result.rows.count < $0 } ?? false }
     var filterEditorVisible = false
     var columnsShown = false
     func toggleFilters() {
@@ -75,6 +78,9 @@ final class WorkspaceTab: Identifiable {
     var editor: RowChange?
     var deletionReview: [RowChange] = []
     var transfer: GridTransfer?
+    var importShown = false
+    var exportShown = false
+    var exportScope: ExportScope?
     var cellEditor: CellEdit?
     var previewShown = false
     var closeAfterCommit = false
@@ -430,12 +436,27 @@ final class Workspace: Identifiable {
         let request = UUID()
         tab.requestID = request; tab.busy = true; tab.error = nil
         defer { if tab.requestID == request { tab.busy = false } }
+        let firstLoad = tab.result.columns.isEmpty && tab.offset == 0 && !tab.showStructure
+        var preview: (@Sendable (QueryResult) -> Void)?
+        if firstLoad {
+            preview = { rows in
+                Task { @MainActor in
+                    guard tab.requestID == request, tab.result.columns.isEmpty else { return }
+                    tab.result = rows
+                }
+            }
+        }
         do {
             let page = try await session.page(of: object, filters: tab.appliedFilters, sortColumn: tab.sortColumn,
-                                              descending: tab.descending, offset: tab.offset, limit: tab.limit, keyColumns: keyColumns)
+                                              descending: tab.descending, offset: tab.offset, limit: tab.limit,
+                                              keyColumns: keyColumns, firstRows: preview)
             guard request == tab.requestID else { return }
             log.entries.append(contentsOf: page.statements)
-            tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset
+            tab.totalCount = page.count; tab.offset = page.offset
+            // The user may already have selected a row while the server was counting.
+            if firstLoad && !tab.result.columns.isEmpty { return }
+            tab.result = page.result
+            guard !previousKeys.isEmpty else { tab.selected = nil; return }
             let keyIndices = keyColumns.compactMap(page.result.columns.firstIndex)
             tab.selectedRows = Set(page.result.rows.indices.filter { index in
                 previousKeys.contains(keyIndices.map { page.result.rows[index][$0] })
