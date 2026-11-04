@@ -1,0 +1,21 @@
+name: connectionbrowser-uitest
+services:
+  database:
+    image: mariadb:10.11
+    platform: linux/arm64
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: catalog
+      MARIADB_USER: browser
+      MARIADB_PASSWORD: local-fixture
+    ports:
+      - "127.0.0.1:33461:3306"
+    tmpfs:
+      - /var/lib/mysql
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
