@@ -28,4 +28,4 @@ for pt in 16 32 128 256 512; do
     sips -z "$s" "$s" "$work/master.png" --out "$setdir/icon_${pt}x${pt}${suffix}.png" >/dev/null
   done
 done
-iconutil -c icns "$setdir" -o ConnectionBrowser/Database.icns
+iconutil -c icns "$setdir" -o TableExplorer/Database.icns

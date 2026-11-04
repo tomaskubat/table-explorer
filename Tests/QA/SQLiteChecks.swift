@@ -14,6 +14,11 @@ import Synchronization
     }
     private static func run() async throws {
         let path = CommandLine.arguments[1]
+        let support = URL(filePath: path).deletingLastPathComponent().appending(path: "Application Support")
+        let legacy = support.appending(path: "ConnectionBrowser", directoryHint: .isDirectory)
+        try check(ConnectionLibrary.defaultDirectory(in: support).lastPathComponent == "TableExplorer", "new installations use the TableExplorer library")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try check(ConnectionLibrary.defaultDirectory(in: support) == legacy, "upgrades reuse the existing connection library")
         var profile = ConnectionProfile(); profile.driver = .sqlite; profile.filePath = path
         let s = DatabaseSession()
         let target = try await s.open(profile, password: "")

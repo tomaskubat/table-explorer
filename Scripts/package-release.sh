@@ -9,28 +9,31 @@ root="$PWD/.build/distribution"
 packages="$root/packages"
 public_key=$(cat Configuration/sparkle-public-key.txt)
 [[ $public_key =~ ^[A-Za-z0-9+/]{43}=$ ]]
-xcodebuild -project ConnectionBrowser.xcodeproj -scheme ConnectionBrowser -configuration Release \
+xcodebuild -project TableExplorer.xcodeproj -scheme TableExplorer -configuration Release \
     -destination 'platform=macOS,arch=arm64' -derivedDataPath "$root/Derived" \
     -clonedSourcePackagesDirPath "$packages" -onlyUsePackageVersionsFromResolvedFile \
     MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$version" CONNECTION_BROWSER_UPDATE_KEY="$public_key" build
 
 work=$(mktemp -d "$root/package.XXXXXX")
 trap 'rm -rf "$work"' EXIT
-app="$work/ConnectionBrowser.app"
-ditto "$root/Derived/Build/Products/Release/ConnectionBrowser.app" "$app"
+app="$work/TableExplorer.app"
+ditto "$root/Derived/Build/Products/Release/TableExplorer.app" "$app"
 info="$app/Contents/Info.plist"
 [[ $(plutil -extract CFBundleVersion raw "$info") == "$version" ]]
 [[ $(plutil -extract CFBundleShortVersionString raw "$info") == "$version" ]]
 [[ $(plutil -extract SUPublicEDKey raw "$info") == "$public_key" ]]
 [[ $(plutil -extract SUFeedURL raw "$info") == https://github.com/tomaskubat/table-explorer/releases/latest/download/appcast.xml ]]
 [[ $(plutil -extract CFBundleIdentifier raw "$info") == local.connectionbrowser.app ]]
+for property in CFBundleName CFBundleDisplayName CFBundleExecutable; do
+    [[ $(plutil -extract "$property" raw "$info") == TableExplorer ]]
+done
 [[ $(plutil -extract LSMinimumSystemVersion raw "$info") == 26.0 ]]
-[[ $(lipo -archs "$app/Contents/MacOS/ConnectionBrowser") == arm64 ]]
+[[ $(lipo -archs "$app/Contents/MacOS/TableExplorer") == arm64 ]]
 frameworks="$app/Contents/Frameworks"
 test -f "$frameworks/libmariadb.3.dylib"
 test -x "$app/Contents/Resources/ssh-tunnel"
 test -x "$app/Contents/Resources/ssh-askpass"
-for binary in "$app/Contents/MacOS/ConnectionBrowser" "$frameworks"/*.dylib; do
+for binary in "$app/Contents/MacOS/TableExplorer" "$frameworks"/*.dylib; do
     lipo -verify_arch arm64 "$binary"
     otool -L "$binary" | awk 'NR>1 {print $1}' > "$work/links"
     while IFS= read -r link; do
@@ -51,10 +54,10 @@ codesign --force --sign - --options=0 "$sparkle"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 
-archive="ConnectionBrowser-$version-arm64.zip"
+archive="TableExplorer-$version-arm64.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$work/$archive"
 mkdir "$work/unpacked"
 ditto -x -k "$work/$archive" "$work/unpacked"
-codesign --verify --deep --strict "$work/unpacked/ConnectionBrowser.app"
+codesign --verify --deep --strict "$work/unpacked/TableExplorer.app"
 mkdir -p "$root/$tag"
 mv "$work/$archive" "$root/$tag/$archive"

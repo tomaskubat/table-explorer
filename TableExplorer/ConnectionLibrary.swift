@@ -96,9 +96,19 @@ final class ConnectionLibrary {
     private var file: URL
     var directory: URL { file.deletingLastPathComponent() }
 
+    nonisolated static func defaultDirectory(in support: URL = .applicationSupportDirectory) -> URL {
+        let current = support.appending(path: "TableExplorer", directoryHint: .isDirectory)
+        let legacy = support.appending(path: "ConnectionBrowser", directoryHint: .isDirectory)
+        // Existing installations keep their profiles, SQL history and drafts together.
+        if !FileManager.default.fileExists(atPath: current.path), FileManager.default.fileExists(atPath: legacy.path) {
+            return legacy
+        }
+        return current
+    }
+
     init() {
         var directory = BrowserPreferences.defaults.string(forKey: "libraryDirectory").map { URL(filePath: $0) }
-            ?? URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")
+            ?? Self.defaultDirectory()
         if let override = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"], override.hasPrefix("/") {
             directory = URL(filePath: override)
         }

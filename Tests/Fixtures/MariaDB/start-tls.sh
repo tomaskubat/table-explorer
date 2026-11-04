@@ -7,7 +7,7 @@ mkdir -p "$cert_dir"
 set --
 if ! openssl x509 -checkend 86400 -noout -in "$cert_dir/server.crt" >/dev/null 2>&1; then
     set -- --force-recreate
-    openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=Connection Browser Test CA" \
+    openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=TableExplorer Test CA" \
         -keyout "$cert_dir/ca.key" -out "$cert_dir/ca.crt"
     openssl req -new -newkey rsa:2048 -nodes -subj "/CN=localhost" \
         -keyout "$cert_dir/server.key" -out "$cert_dir/server.csr"

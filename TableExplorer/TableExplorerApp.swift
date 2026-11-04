@@ -2,11 +2,11 @@ import SwiftUI
 import Sparkle
 
 #if !arch(arm64)
-#error("Connection Browser requires Apple Silicon.")
+#error("TableExplorer requires Apple Silicon.")
 #endif
 
 @main
-struct ConnectionBrowserApp: App {
+struct TableExplorerApp: App {
     @State private var library = ConnectionLibrary()
     @State private var workspaces: WorkspaceRegistry
     @StateObject private var updates: ApplicationUpdates

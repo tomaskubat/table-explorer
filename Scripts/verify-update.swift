@@ -28,7 +28,7 @@ func verify() throws {
     let doc = try XMLDocument(data: Data(content))
     let items = try doc.nodes(forXPath: "/rss/channel/item")
     let ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-    let archive = "ConnectionBrowser-\(version)-arm64.zip"
+    let archive = "TableExplorer-\(version)-arm64.zip"
     let bytes = try Data(contentsOf: directory.appendingPathComponent(archive), options: .mappedIfSafe)
     guard items.count == 1, let item = items.first as? XMLElement,
           item.elements(forLocalName: "version", uri: ns).first?.stringValue == version,

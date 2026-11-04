@@ -11,7 +11,7 @@ tag="v$version"
 repo=tomaskubat/table-explorer
 local_marker='Publish from local Mac'
 out="$PWD/.build/distribution/$tag"
-archive="ConnectionBrowser-$version-arm64.zip"
+archive="TableExplorer-$version-arm64.zip"
 key="$PWD/Configuration/sparkle-public-key.txt"
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 
@@ -69,8 +69,8 @@ publish() {
     (cd "$out" && shasum -a 256 "$archive" appcast.xml) | cmp - "$out/SHA256SUMS.txt"
     state=$(release_state)
     if [[ $state == new ]]; then
-        gh release create "$tag" --repo "$repo" --verify-tag --draft --title "Connection Browser $version" \
-            --notes "Requires a Mac with Apple silicon running macOS 26 or later. Download $archive from Assets, unzip it, and drag ConnectionBrowser.app into Applications."
+        gh release create "$tag" --repo "$repo" --verify-tag --draft --title "TableExplorer $version" \
+            --notes "Requires a Mac with Apple silicon running macOS 26 or later. Download $archive from Assets, unzip it, and drag TableExplorer.app into Applications."
     fi
     [[ $(gh release view "$tag" --repo "$repo" --json isDraft --jq .isDraft) == true ]] || die "Only a draft may be updated."
     gh release upload "$tag" --repo "$repo" --clobber "$out/$archive" "$out/appcast.xml" "$out/SHA256SUMS.txt"

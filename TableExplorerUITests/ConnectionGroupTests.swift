@@ -13,6 +13,7 @@ final class ConnectionGroupTests: XCTestCase {
 
         let window = app.windows["Saved Connections"]
         XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTAssertTrue(window.staticTexts["TableExplorer"].exists)
         let local = window.staticTexts["catalog@local"]
         let stage = window.staticTexts["catalog@stage"]
         let neighbor = window.staticTexts["warehouse@local"]

@@ -88,7 +88,7 @@ struct PreferencesView: View {
                         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
                         if panel.runModal() == .OK, let folder = panel.url { changeLocation(folder) }
                     }
-                    Button("Use Default Folder") { changeLocation(URL.applicationSupportDirectory.appending(path: "ConnectionBrowser")) }
+                    Button("Use Default Folder") { changeLocation(ConnectionLibrary.defaultDirectory()) }
                 }
                 if ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"] != nil {
                     Text("The launch environment selects the initial library folder.").font(.caption)

@@ -26,7 +26,7 @@ struct SavedConnectionsView: View {
             VStack(spacing: 0) {
                 Spacer()
                 LibraryMark().frame(width: 96, height: 76)
-                Text("Connection Browser").font(.system(size: 23, weight: .light)).padding(.top, 12)
+                Text("TableExplorer").font(.system(size: 23, weight: .light)).padding(.top, 12)
                 Text("Build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))
                     .font(.system(size: 13, weight: .light)).foregroundStyle(.secondary).padding(.top, 11)
                 let count = library.groups.reduce(0) { $0 + $1.connections.count }
