@@ -188,6 +188,12 @@ actor DatabaseSession {
         } catch { close(); throw error }
     }
 
+    var hasOpenTransaction: Bool {
+        if let sqlite { return sqlite3_get_autocommit(sqlite.database) == 0 }
+        if let maria { return maria.connection.pointee.server_status & UInt32(SERVER_STATUS_IN_TRANS) != 0 }
+        return false
+    }
+
     func close() { maria = nil; sqlite = nil }
 
     func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {

@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 
 final class SQLiteConnectionTests: XCTestCase {
     @MainActor
@@ -44,6 +45,52 @@ final class SQLiteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.waitForExistence(timeout: 5))
         XCTAssertTrue(workspace.staticTexts["mesto"].waitForExistence(timeout: 5))
         workspace.staticTexts["mesto"].doubleClick()
-        XCTAssertTrue(workspace.staticTexts["Brno"].waitForExistence(timeout: 5))
+        let brno = workspace.staticTexts["Brno"]
+        XCTAssertTrue(brno.waitForExistence(timeout: 5))
+        brno.firstMatch.click()
+        workspace.buttons["Edit Row"].click()
+        let name = app.textFields["edit-nazev"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.replaceText(with: "Brno City")
+        app.buttons["Stage Changes"].click()
+        workspace.buttons["Preview Changes"].click()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "value CONTAINS %@", "UPDATE")).firstMatch.waitForExistence(timeout: 3))
+        app.buttons["Close Preview"].click()
+        workspace.buttons["Discard Changes"].click()
+        XCTAssertTrue(brno.firstMatch.waitForExistence(timeout: 3))
+
+        brno.firstMatch.click()
+        workspace.buttons["Edit Row"].click()
+        name.replaceText(with: "Brno City")
+        app.buttons["Stage Changes"].click()
+        workspace.buttons["Preview Changes"].click()
+        app.buttons["Commit Changes"].click()
+        let changed = workspace.staticTexts["Brno City"]
+        XCTAssertTrue(changed.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(try readName(file), "Brno City")
+
+        changed.firstMatch.click()
+        workspace.buttons["Edit Row"].click()
+        name.replaceText(with: "Local draft")
+        app.buttons["Stage Changes"].click()
+        var external: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(file.path, &external, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(external, "UPDATE mesto SET nazev='External edit' WHERE id=1", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(external)
+        workspace.buttons["Preview Changes"].click()
+        app.buttons["Commit Changes"].click()
+        XCTAssertTrue(app.staticTexts["commitError"].waitForExistence(timeout: 5))
+        XCTAssertEqual(try readName(file), "External edit")
+    }
+
+    private func readName(_ file: URL) throws -> String {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { throw CocoaError(.fileReadUnknown) }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT nazev FROM mesto WHERE id=1", -1, &statement, nil) == SQLITE_OK else { throw CocoaError(.fileReadUnknown) }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw CocoaError(.fileReadUnknown) }
+        return String(cString: sqlite3_column_text(statement, 0))
     }
 }

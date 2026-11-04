@@ -54,5 +54,33 @@ final class MariaDBConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.staticTexts["1 of 1 rows"].exists)
         workspace.buttons["Unset"].click()
         XCTAssertTrue(workspace.staticTexts["Austria"].waitForExistence(timeout: 5))
+
+        let marker = "Verified " + UUID().uuidString.prefix(8)
+        workspace.staticTexts["Czechia"].firstMatch.click()
+        workspace.buttons["Edit Row"].click()
+        let note = app.textFields["edit-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 4))
+        let previous = note.value as? String ?? ""
+        let mode = try XCTUnwrap(app.popUpButtons["mode-note"].value as? String)
+        XCTAssertTrue(["NULL", "Value"].contains(mode))
+        let wasNull = mode == "NULL"
+        note.replaceText(with: marker)
+        app.buttons["Stage Changes"].click()
+        workspace.buttons["Preview Changes"].click()
+        app.buttons["Commit Changes"].click()
+        XCTAssertTrue(workspace.staticTexts[marker].firstMatch.waitForExistence(timeout: 5))
+        // Read again from the server before restoring the fixture.
+        workspace.buttons["Unset"].click()
+        XCTAssertTrue(workspace.staticTexts[marker].firstMatch.waitForExistence(timeout: 5))
+        workspace.staticTexts["Czechia"].firstMatch.click()
+        workspace.buttons["Edit Row"].click()
+        if wasNull {
+            app.popUpButtons["mode-note"].click()
+            app.menuItems["NULL"].click()
+        } else { note.replaceText(with: previous) }
+        app.buttons["Stage Changes"].click()
+        workspace.buttons["Preview Changes"].click()
+        app.buttons["Commit Changes"].click()
+        XCTAssertTrue(workspace.staticTexts[marker].firstMatch.waitForNonExistence(timeout: 5))
     }
 }

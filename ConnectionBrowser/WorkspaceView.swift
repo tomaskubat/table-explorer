@@ -60,12 +60,12 @@ struct WorkspaceView: View {
                 if showDetails {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Row Detail").font(.headline)
-                        if let tab = workspace.active, let index = tab.selected, tab.result.rows.indices.contains(index) {
+                        if let tab = workspace.active, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 8) {
                                     ForEach(tab.result.columns.indices, id: \.self) { i in
                                         Text(tab.result.columns[i]).font(.caption).foregroundStyle(.secondary)
-                                        Text(tab.result.rows[index][i].display).textSelection(.enabled)
+                                        Text(tab.displayed.rows[index][i].display).textSelection(.enabled)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -101,11 +101,29 @@ private struct WorkspaceTabView: View {
                     .disabled(tab.busy || tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if tab.object != nil {
-                TableControls(workspace: workspace, tab: tab)
+                Picker("Object Mode", selection: $tab.showStructure) {
+                    Text("Data").tag(false)
+                    Text("Structure").tag(true)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 180)
+                if tab.showStructure {
+                    Picker("Structure Section", selection: $tab.section) {
+                        ForEach(["Columns", "Indexes", "Foreign Keys", "Triggers", "DDL"], id: \.self) { Text($0) }
+                    }.frame(maxWidth: 320)
+                } else {
+                    TableControls(workspace: workspace, tab: tab)
+                }
             }
             if tab.busy { ProgressView("Running query…").controlSize(.small) }
             if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            ResultTable(result: tab.result, selected: $tab.selected, hidden: tab.hiddenColumns)
+            if tab.showStructure {
+                if tab.section == "DDL", let row = tab.structureResult.rows.first {
+                    ScrollView { Text(row.first(where: { $0.display.uppercased().contains("CREATE ") })?.display ?? "")
+                        .font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
+            } else {
+                ResultTable(result: tab.displayed, selected: $tab.selected, hidden: tab.hiddenColumns, pending: tab.cellMarkers)
+                if tab.object != nil { RowActions(workspace: workspace, tab: tab) }
+            }
             HStack {
                 if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
                 else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")").font(.caption) }
@@ -122,6 +140,7 @@ private struct WorkspaceTabView: View {
                 }
             }
         }.padding(8)
+        .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }
     }
 }
 
@@ -134,12 +153,19 @@ struct ResultTable: View {
     let result: QueryResult
     @Binding var selected: Int?
     var hidden: Set<String> = []
+    var pending: [Int: [String: String]] = [:]
     var body: some View {
         Table(result.rows.enumerated().map { GridRow(id: $0.offset, cells: $0.element) }, selection: $selected) {
             TableColumnForEach(result.columns.indices.filter { !hidden.contains(result.columns[$0]) }, id: \.self) { column in
                 TableColumn(result.columns[column]) { row in
-                    Text(row.cells[column].display)
-                        .foregroundStyle(row.cells[column] == .null ? .secondary : .primary)
+                    HStack(spacing: 4) {
+                        if let marker = pending[row.id]?[result.columns[column]] {
+                            Image(systemName: marker).accessibilityLabel("Pending change")
+                        }
+                        Text(row.cells[column].display)
+                            .strikethrough(pending[row.id]?[result.columns[column]] == "minus.circle")
+                            .foregroundStyle(row.cells[column] == .null ? .secondary : .primary)
+                    }
                 }.width(min: 70, ideal: 125)
             }
         }.accessibilityLabel("Query Results")
