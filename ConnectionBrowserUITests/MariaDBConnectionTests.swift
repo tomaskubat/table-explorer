@@ -20,7 +20,7 @@ final class MariaDBConnectionTests: XCTestCase {
         app.textFields["User"].replaceText(with: "browser")
         app.secureTextFields["Password"].replaceText(with: "local-fixture")
         app.textFields["Database"].replaceText(with: "catalog")
-        app.checkBoxes["Require verified TLS"].click()
+        app.checkBoxes["Require verified TLS"].setChecked(false)
 
         app.buttons["Test Connection"].click()
         XCTAssertTrue(app.staticTexts["connectionError"].waitForExistence(timeout: 10))

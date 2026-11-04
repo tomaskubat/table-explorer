@@ -33,7 +33,7 @@ final class SSHTunnelTests: XCTestCase {
         app.textFields["User"].replaceText(with: "browser")
         app.secureTextFields["Password"].replaceText(with: "local-fixture")
         app.textFields["Database"].replaceText(with: "catalog")
-        if !tls { app.checkBoxes["Require verified TLS"].click() }
+        if !tls { app.checkBoxes["Require verified TLS"].setChecked(false) }
         app.checkBoxes["Over SSH"].click()
         XCTAssertTrue(app.textFields["SSH Host"].waitForExistence(timeout: 5))
         app.textFields["SSH Host"].replaceText(with: "127.0.0.1")

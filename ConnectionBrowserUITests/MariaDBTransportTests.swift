@@ -37,7 +37,7 @@ final class MariaDBTransportTests: XCTestCase {
         let (app, directory) = try startApp()
         defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
         try enterProfile(app, name: "Socket Catalog")
-        app.checkBoxes["Require verified TLS"].click()
+        app.checkBoxes["Require verified TLS"].setChecked(false)
         app.checkBoxes["Use Unix socket"].click()
         app.textFields["Socket Path"].replaceText(with: socketPath.path + ".missing")
         app.buttons["Test Connection"].click()

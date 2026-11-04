@@ -64,7 +64,7 @@ final class LibraryManagementTests: XCTestCase {
         app.textFields["Database"].replaceText(with: "catalog")
         app.secureTextFields["Password"].replaceText(with: "local-fixture")
         app.checkBoxes["Remember password in Keychain"].click()
-        app.checkBoxes["Require verified TLS"].click()
+        app.checkBoxes["Require verified TLS"].setChecked(false)
         app.buttons["Save"].click()
         XCTAssertTrue(window.staticTexts["Move Me"].waitForExistence(timeout: 5))
         window.staticTexts["Development"].click()
