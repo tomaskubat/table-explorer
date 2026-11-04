@@ -1,0 +1,96 @@
+import SwiftUI
+
+private struct WorkspaceKey: FocusedValueKey { typealias Value = Workspace }
+extension FocusedValues {
+    var connectionWorkspace: Workspace? {
+        get { self[WorkspaceKey.self] }
+        set { self[WorkspaceKey.self] = newValue }
+    }
+}
+
+struct WorkspaceCommands: Commands {
+    @FocusedValue(\.connectionWorkspace) private var workspace
+    @Environment(\.openWindow) private var openWindow
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Saved Connections") { openWindow(id: "connections") }.keyboardShortcut("n")
+            Button("New Query") { workspace?.newQuery() }.keyboardShortcut("t").disabled(workspace == nil)
+        }
+        CommandGroup(after: .sidebar) {
+            Toggle("Item List", isOn: flag(\.showItems)).disabled(workspace == nil)
+            Toggle("Row Detail", isOn: flag(\.showDetails)).disabled(workspace == nil)
+            Toggle("SQL Console", isOn: flag(\.showConsole))
+                .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(workspace == nil)
+        }
+        CommandMenu("Connection") {
+            Button("Open Anything…") { workspace?.objectSearchShown = true }.keyboardShortcut("p").disabled(workspace?.connected != true)
+            Button("Change Database…") { workspace?.databaseSelectorShown = true }
+                .disabled(workspace?.profile.driver != .mariaDB || workspace?.connected != true)
+            Divider()
+            Button("Disconnect") { if let workspace { Task { await workspace.disconnect() } } }
+                .disabled(workspace?.connected != true || workspace?.hasRunningTasks == true)
+            Button("Reconnect") { if let workspace { Task { await workspace.reconnect() } } }
+                .disabled(workspace?.connected != false || workspace?.reconnecting == true)
+        }
+    }
+    private func flag(_ key: ReferenceWritableKeyPath<Workspace, Bool>) -> Binding<Bool> {
+        Binding(get: { workspace?[keyPath: key] ?? false }, set: { workspace?[keyPath: key] = $0 })
+    }
+}
+
+struct ObjectSearch: View {
+    let workspace: Workspace
+    @State private var term = ""
+    @State private var selection: DatabaseObject.ID?
+    @Environment(\.dismiss) private var dismiss
+    private var matches: [DatabaseObject] { workspace.objects.filter { term.isEmpty || $0.name.localizedCaseInsensitiveContains(term) } }
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Open Anything").font(.title2)
+            TextField("Search objects in " + workspace.database, text: $term)
+            List(matches, selection: $selection) { object in
+                HStack { Text(object.name); Spacer(); Text(object.kind.rawValue).foregroundStyle(.secondary) }
+                    .tag(object.id).contentShape(Rectangle()).onTapGesture(count: 2) { open(object) }
+            }
+            HStack {
+                Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Open") { if let target = selection ?? matches.first { open(target) } }
+                    .keyboardShortcut(.defaultAction).disabled(matches.isEmpty)
+            }
+        }.padding(16).frame(width: 420, height: 300)
+        .onChange(of: term) { selection = matches.first }
+    }
+    private func open(_ object: DatabaseObject) { dismiss(); Task { await workspace.open(object) } }
+}
+
+struct DatabaseChooser: View {
+    let workspace: Workspace
+    @State private var names: [String] = []
+    @State private var search = ""
+    @State private var selected: String?
+    @State private var error: String?
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Change Database").font(.title2)
+            Text("Switching databases closes the current tabs.").font(.caption)
+            TextField("Search databases", text: $search)
+            List(names.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }, id: \.self, selection: $selected) { Text($0) }
+            if let error { Text(error).foregroundStyle(.red) }
+            HStack {
+                Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Open") {
+                    guard let selected else { return }
+                    Task {
+                        do { try await workspace.switchDatabase(to: selected); dismiss() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }.disabled(selected == nil)
+            }
+        }.padding(16).frame(width: 420, height: 300)
+        .task {
+            do { names = try await workspace.session.query("SHOW DATABASES", limit: .max).rows.map { $0[0].display }; selected = workspace.database }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+}

@@ -72,7 +72,7 @@ final class MariaHandle {
     }
 
     func failure() -> BrowserError {
-        BrowserError("MariaDB \(mysql_errno(connection)): \(String(cString: mysql_error(connection)))")
+        BrowserError.maria(mysql_errno(connection), String(cString: mysql_error(connection)))
     }
 
     func query(_ sql: String, limit: Int) throws -> QueryResult {
@@ -202,11 +202,16 @@ actor DatabaseSession {
 
     func query(_ sql: String, parameters: [SQLValue] = [], limit: Int = 1000) throws -> QueryResult {
         if let maria {
-            if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit) }
-            return try maria.query(sql, limit: limit)
+            do {
+                if !parameters.isEmpty { return try maria.preparedQuery(sql, parameters: parameters, limit: limit) }
+                return try maria.query(sql, limit: limit)
+            } catch let error as BrowserError {
+                if error.disconnected { self.maria = nil }
+                throw error
+            }
         }
         if let sqlite { return try sqlite.query(sql, parameters: parameters, limit: limit) }
-        throw BrowserError("This workspace is disconnected.")
+        throw BrowserError("This workspace is disconnected.", disconnected: true)
     }
 
     func objects() throws -> [DatabaseObject] {

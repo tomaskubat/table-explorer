@@ -31,7 +31,7 @@ struct ProfileEditor: View {
     let library: ConnectionLibrary
     @State var profile: ConnectionProfile
     @State var groupID: UUID
-    let onConnect: (ConnectionProfile, DatabaseSession, String) -> Void
+    let onConnect: (ConnectionProfile, DatabaseSession, String, String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var password = ""
     @State private var error: String?
@@ -118,7 +118,7 @@ struct ProfileEditor: View {
             else {
                 try library.save(profile, in: groupID, password: password)
                 dismiss()
-                onConnect(profile, session, database)
+                onConnect(profile, session, database, password)
             }
         } catch { await session.close(); self.error = error.localizedDescription }
     }

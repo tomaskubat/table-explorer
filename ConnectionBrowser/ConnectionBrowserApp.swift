@@ -24,5 +24,6 @@ struct ConnectionBrowserApp: App {
             }
         }
         .defaultSize(width: 1040, height: 650)
+        .commands { WorkspaceCommands() }
     }
 }

@@ -37,7 +37,11 @@ struct ConnectionGroup: Identifiable, Codable {
 
 struct BrowserError: LocalizedError {
     var message: String
-    init(_ message: String) { self.message = message }
+    var disconnected: Bool
+    init(_ message: String, disconnected: Bool = false) { self.message = message; self.disconnected = disconnected }
+    static func maria(_ code: UInt32, _ detail: String) -> Self {
+        BrowserError("MariaDB \(code): \(detail)", disconnected: [1927, 2006, 2013, 2055].contains(code))
+    }
     var errorDescription: String? { message }
 }
 

@@ -102,7 +102,8 @@ final class Workspace: Identifiable {
     let profile: ConnectionProfile
     let notebook: QueryNotebook
     let session: DatabaseSession
-    let database: String
+    var database: String
+    private let password: String
     var objects: [DatabaseObject] = []
     var tabs: [WorkspaceTab] = []
     var activeID: UUID?
@@ -110,17 +111,63 @@ final class Workspace: Identifiable {
     var log: [String] = []
     var error: String?
     var connected = true
+    var reconnecting = false
+    var showItems = true
+    var showDetails = true
+    var showConsole = true
+    var objectSearchShown = false
+    var databaseSelectorShown = false
+    var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
+    var hasRunningTasks: Bool { tabs.contains { $0.busy } }
 
-    init(profile: ConnectionProfile, session: DatabaseSession, database: String, notebook: QueryNotebook) {
-        self.notebook = notebook
+    init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, notebook: QueryNotebook) {
+        self.notebook = notebook; self.password = password
         self.profile = profile; self.session = session; self.database = database
+    }
+
+    func disconnect() async {
+        guard connected, !hasRunningTasks else { return }
+        connected = false
+        await session.close()
+    }
+
+    func reconnect() async {
+        guard !connected, !reconnecting else { return }
+        reconnecting = true
+        defer { reconnecting = false }
+        do {
+            var target = profile
+            if profile.driver == .mariaDB { target.database = database }
+            database = try await session.open(target, password: password)
+            connected = true
+            await reloadObjects()
+            if let active, active.object != nil && active.changes.isEmpty { await load(active) }
+        } catch { record(error) }
+    }
+
+    func switchDatabase(to name: String) async throws {
+        guard !hasDrafts && !hasRunningTasks else { throw BrowserError("Finish pending changes and queries before switching databases.") }
+        _ = try await session.query("USE " + DatabaseSession.identifier(name))
+        tabs = []; activeID = nil; database = name
+        await reloadObjects()
+    }
+
+    func closeTab(_ tab: WorkspaceTab) {
+        guard !tab.busy else { return }
+        tabs.removeAll { $0.id == tab.id }
+        if activeID == tab.id { activeID = tabs.last?.id }
+    }
+
+    private func record(_ error: Error) {
+        self.error = error.localizedDescription
+        if (error as? BrowserError)?.disconnected == true { connected = false }
     }
 
     func reloadObjects() async {
         do {
             objects = try await session.objects()
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch { record(error) }
     }
     func open(_ object: DatabaseObject) async {
         if let existing = tabs.first(where: { $0.object == object }) { activeID = existing.id; return }
@@ -150,7 +197,7 @@ final class Workspace: Identifiable {
             try await session.commit(tab.changes, object: object, driver: profile.driver)
             tab.discard(); tab.previewShown = false
             await load(tab)
-        } catch { tab.commitError = error.localizedDescription }
+        } catch { tab.commitError = error.localizedDescription; record(error) }
         tab.busy = false
     }
 
@@ -172,7 +219,7 @@ final class Workspace: Identifiable {
             tab.result = page.result; tab.totalCount = page.count; tab.offset = page.offset; tab.selected = nil
         } catch {
             guard request == tab.requestID else { return }
-            tab.error = error.localizedDescription; log.append(error.localizedDescription)
+            tab.error = error.localizedDescription; log.append(error.localizedDescription); record(error)
         }
     }
     func run(_ statements: [String], on tab: WorkspaceTab) async {
@@ -185,7 +232,7 @@ final class Workspace: Identifiable {
             var result = QueryResult()
             var failure: String?
             do { result = try await session.query(sql) }
-            catch { failure = error.localizedDescription }
+            catch { failure = error.localizedDescription; if (error as? BrowserError)?.disconnected == true { record(error) } }
             let duration = Date().timeIntervalSince(start)
             let hidden = QueryNotebook.containsCredentials(sql)
             log.append(hidden ? "Statement containing credentials" : sql)

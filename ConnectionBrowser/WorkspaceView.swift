@@ -4,14 +4,19 @@ struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     @State private var search = ""
     @State private var navigator = "Items"
-    @State private var showItems = true
-    @State private var showDetails = true
-    @State private var showConsole = true
+    @State private var closing: WorkspaceTab?
 
     var body: some View {
         VStack(spacing: 0) {
+            if !workspace.connected {
+                HStack {
+                    Label("Disconnected", systemImage: "bolt.slash")
+                    Spacer()
+                    Button("Reconnect") { Task { await workspace.reconnect() } }.disabled(workspace.reconnecting)
+                }.padding(8).background(.orange.opacity(0.12))
+            }
             HSplitView {
-                if showItems {
+                if workspace.showItems {
                     VStack(alignment: .leading) {
                         Picker("Navigator", selection: $navigator) {
                             ForEach(["Items", "Queries", "History"], id: \.self) { Text($0) }
@@ -41,6 +46,11 @@ struct WorkspaceView: View {
                                     Button(tab.title) { workspace.activeID = tab.id }
                                         .buttonStyle(.bordered)
                                         .tint(tab.id == workspace.activeID ? .accentColor : .secondary)
+                                        .contextMenu { Button("Close Tab") { requestClose(tab) }.disabled(tab.busy) }
+                                    if tab.id == workspace.activeID {
+                                        Button("Close Tab", systemImage: "xmark") { requestClose(tab) }
+                                            .buttonStyle(.borderless).labelStyle(.iconOnly).disabled(tab.busy)
+                                    }
                                 }
                             }.padding(6)
                         }
@@ -52,24 +62,24 @@ struct WorkspaceView: View {
                         ContentUnavailableView("No Open Tabs", systemImage: "tablecells", description: Text("Open a table or start a new SQL query."))
                     }
                     if let error = workspace.error { Text(error).foregroundStyle(.red).padding(6) }
-                    if showConsole {
+                    if workspace.showConsole {
                         Divider()
                         ScrollView {
                             Text(workspace.log.isEmpty ? "Open a table or run a query to see its SQL." : workspace.log.joined(separator: "\n"))
                                 .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(8).frame(height: 80).accessibilityLabel("SQL Console")
+                        }.padding(8).frame(height: 80).accessibilityLabel("SQL Console").accessibilityIdentifier("SQL Console")
                     }
                 }.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-                if showDetails {
+                if workspace.showDetails {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Row Detail").font(.headline)
+                        Text("Row Detail").font(.headline).accessibilityIdentifier("row-detail-header")
                         if let tab = workspace.active, let index = tab.selected, tab.displayed.rows.indices.contains(index) {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 8) {
                                     ForEach(tab.result.columns.indices, id: \.self) { i in
                                         Text(tab.result.columns[i]).font(.caption).foregroundStyle(.secondary)
-                                        Text(tab.displayed.rows[index][i].display).textSelection(.enabled)
+                                        Text(tab.displayed.rows[index][i].display).textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -81,13 +91,28 @@ struct WorkspaceView: View {
         }
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
         .frame(minWidth: 740, minHeight: 390)
+        .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
+        .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
+            Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true }
+            Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
+            Button("Keep Editing", role: .cancel) {}
+        }
+        .focusedSceneValue(\.connectionWorkspace, workspace)
+        .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
+        .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }
         .toolbar {
-            Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }.keyboardShortcut("t")
-            Button("Item List", systemImage: "sidebar.left") { showItems.toggle() }
-            Button("SQL Console", systemImage: "terminal") { showConsole.toggle() }.keyboardShortcut("c", modifiers: [.command, .shift])
-            Button("Row Detail", systemImage: "sidebar.right") { showDetails.toggle() }
+            if workspace.profile.driver == .mariaDB {
+                Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
+            }
+            Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }
+            Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
+            Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
+            Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
         }
         .task { await workspace.reloadObjects() }
+    }
+    private func requestClose(_ tab: WorkspaceTab) {
+        if tab.changes.isEmpty { workspace.closeTab(tab) } else { closing = tab }
     }
 }
 

@@ -57,8 +57,8 @@ struct SavedConnectionsView: View {
             switch editor {
             case .group(let group): GroupEditor(library: library, group: group)
             case .profile(let profile, let group):
-                ProfileEditor(library: library, profile: profile, groupID: group) { connection, session, database in
-                    showWorkspace(connection, session: session, database: database)
+                ProfileEditor(library: library, profile: profile, groupID: group) { connection, session, database, password in
+                    showWorkspace(connection, session: session, database: database, password: password)
                 }
             }
         }
@@ -147,14 +147,14 @@ struct SavedConnectionsView: View {
         do {
             let password = profile.rememberPassword ? try ProfilePassword.read(profile.id) : ""
             let database = try await session.open(profile, password: password)
-            showWorkspace(profile, session: session, database: database)
+            showWorkspace(profile, session: session, database: database, password: password)
         } catch {
             editor = .profile(profile, group)
             self.error = error.localizedDescription
         }
     }
-    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String) {
-        let workspace = Workspace(profile: profile, session: session, database: database, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
+    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String) {
+        let workspace = Workspace(profile: profile, session: session, database: database, password: password, notebook: workspaces.notebook(for: profile.id, directory: library.directory))
         workspaces.sessions[workspace.id] = workspace
         openWindow(value: workspace.id)
     }

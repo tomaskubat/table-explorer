@@ -6,7 +6,7 @@ extension MariaHandle {
     func preparedQuery(_ sql: String, parameters: [SQLValue], limit: Int) throws -> QueryResult {
         guard let statement = mysql_stmt_init(connection) else { throw failure() }
         defer { mysql_stmt_close(statement) }
-        func statementError() -> BrowserError { BrowserError("MariaDB \(mysql_stmt_errno(statement)): \(String(cString: mysql_stmt_error(statement)))") }
+        func statementError() -> BrowserError { BrowserError.maria(mysql_stmt_errno(statement), String(cString: mysql_stmt_error(statement))) }
         guard mysql_stmt_prepare(statement, sql, UInt(sql.utf8.count)) == 0 else { throw statementError() }
         guard mysql_stmt_param_count(statement) == parameters.count else { throw BrowserError("The number of SQL parameters does not match the statement.") }
 
