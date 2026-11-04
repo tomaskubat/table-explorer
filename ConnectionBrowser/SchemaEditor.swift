@@ -108,6 +108,8 @@ struct ServerToolSheet: View {
     @State private var result = QueryResult()
     @State private var selection: Int?
     @State private var details = ""
+    @State private var search = ""
+    @State private var change: AccountChange?
     @State private var error: String?
     @State private var confirmation: String?
     @Environment(\.dismiss) private var dismiss
@@ -115,17 +117,23 @@ struct ServerToolSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tool.rawValue).font(.title2)
             Text(workspace.profile.name + " · " + workspace.profile.detail).foregroundStyle(.secondary)
-            ResultTable(result: result, selected: $selection)
+            TextField(tool == .accounts ? "Search accounts" : "Search processes", text: $search)
+                .accessibilityIdentifier("Server Tool Search")
+            ResultTable(result: filtered, selected: $selection)
             if let error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("serverToolError") }
             if !details.isEmpty { ScrollView { Text(details).textSelection(.enabled).font(.system(.caption, design: .monospaced)) }.frame(height: 75) }
             HStack {
                 Button("Refresh") { Task { await refresh() } }
                 if tool == .accounts {
+                    Menu("Manage Account") {
+                        ForEach([AccountChange.create, .password, .grant, .revoke, .drop], id: \.self) { action in
+                            Button(action.rawValue + "…") { change = action }.disabled(action != .create && selectedAccount == nil)
+                        }
+                    }.accessibilityIdentifier("Manage Account")
                     Button("Show Grants") {
-                        guard let row = selectedRow else { return }
-                        let account = row.prefix(2).map { ChangeSQL.literal($0, driver: .mariaDB) }.joined(separator: "@")
+                        guard let account = selectedAccount else { return }
                         Task {
-                            do { details = try await workspace.session.query("SHOW GRANTS FOR " + account).rows.map { $0[0].display }.joined(separator: "\n") }
+                            do { details = try await workspace.session.query("SHOW GRANTS FOR " + account.sql).rows.map { $0[0].display.replacingOccurrences(of: #"(?i)IDENTIFIED BY PASSWORD '[^']*'"#, with: "IDENTIFIED BY PASSWORD '••••'", options: .regularExpression) }.joined(separator: "\n") }
                             catch { self.error = error.localizedDescription }
                         }
                     }.disabled(selection == nil)
@@ -137,6 +145,11 @@ struct ServerToolSheet: View {
             }
         }.padding(16).frame(width: 700, height: 390)
         .task { await refresh() }
+        .onChange(of: search) { selection = nil; details = "" }
+        .onChange(of: selection) { details = "" }
+        .sheet(item: $change) { action in
+            AccountEditor(workspace: workspace, change: action, account: action == .create ? nil : selectedAccount) { await refresh() }
+        }
         .confirmationDialog("Kill query \(confirmation ?? "") on \(workspace.profile.name)?", isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }), presenting: confirmation) { id in
             Button("Kill Query", role: .destructive) {
                 Task {
@@ -147,9 +160,19 @@ struct ServerToolSheet: View {
             Button("Cancel", role: .cancel) {}
         }
     }
+    private var filtered: QueryResult {
+        guard !search.isEmpty else { return result }
+        var filtered = result
+        filtered.rows = result.rows.filter { $0.contains { $0.display.localizedCaseInsensitiveContains(search) } }
+        return filtered
+    }
+    private var selectedAccount: MariaAccount? {
+        guard tool == .accounts, let row = selectedRow, row.count >= 2 else { return nil }
+        return MariaAccount(user: row[0].display, host: row[1].display)
+    }
     private var selectedRow: [SQLValue]? {
-        guard let selection, result.rows.indices.contains(selection) else { return nil }
-        return result.rows[selection]
+        guard let selection, filtered.rows.indices.contains(selection) else { return nil }
+        return filtered.rows[selection]
     }
     private func refresh() async {
         error = nil; details = ""; selection = nil

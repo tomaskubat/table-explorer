@@ -18,7 +18,8 @@ services:
     tmpfs:
       - /var/lib/mysql
     volumes:
-      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+      - ./seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro
+      - ./admin.sql:/docker-entrypoint-initdb.d/20-admin.sql:ro
       - ../../../.build/TLSFixture/ca.crt:/run/fixture-ca.crt:ro
       - ../../../.build/TLSFixture/server.crt:/run/fixture-server.crt:ro
       - ../../../.build/TLSFixture/server.key:/run/fixture-server.key:ro
