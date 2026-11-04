@@ -5,18 +5,7 @@ final class MariaDBConnectionTests: XCTestCase {
     @MainActor
     func testCorrectingAnInvalidPortOpensTheRealMariaDBCatalog() throws {
         // The shared scheme can also run on developer machines without Docker.
-        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
-        defer { close(socketFD) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = UInt16(33461).bigEndian
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        let available = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
-            }
-        }
-        try XCTSkipUnless(available, "Start the MariaDB fixture in Tests/Fixtures/MariaDB.")
+        try XCTSkipUnless(fixtureListening(33461), "Start the MariaDB fixture in Tests/Fixtures/MariaDB.")
         continueAfterFailure = false
         let app = XCUIApplication()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

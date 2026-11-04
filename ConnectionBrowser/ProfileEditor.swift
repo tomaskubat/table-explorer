@@ -53,7 +53,7 @@ struct ProfileEditor: View {
                 Divider()
                 if profile.driver == .mariaDB {
                     Toggle("Use Unix socket", isOn: $profile.usesSocket)
-                    if profile.usesSocket { TextField("Socket Path", text: $profile.socketPath) }
+                    if profile.usesSocket { TextField("Socket Path", text: $profile.socketPath).accessibilityIdentifier("Socket Path") }
                     else {
                         TextField("Host", text: $profile.host).accessibilityIdentifier("Host")
                         TextField("Port", text: $profile.port).accessibilityIdentifier("Port")
@@ -63,7 +63,7 @@ struct ProfileEditor: View {
                     Toggle("Remember password in Keychain", isOn: $profile.rememberPassword)
                     TextField("Database", text: $profile.database).accessibilityIdentifier("Database")
                     Toggle("Require verified TLS", isOn: $profile.verifyTLS)
-                    if profile.verifyTLS { TextField("CA Certificate Path", text: $profile.caPath) }
+                    if profile.verifyTLS { TextField("CA Certificate Path", text: $profile.caPath).accessibilityIdentifier("CA Certificate Path") }
                 } else {
                     HStack {
                         TextField("Database File", text: $profile.filePath).accessibilityIdentifier("Database File")

@@ -47,7 +47,12 @@ final class MariaHandle {
         var tls: my_bool = profile.verifyTLS ? 1 : 0
         mysql_options(connection, MYSQL_OPT_SSL_ENFORCE, &tls)
         mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &tls)
-        if profile.verifyTLS && !profile.caPath.isEmpty { mysql_options(connection, MYSQL_OPT_SSL_CA, profile.caPath) }
+        if profile.verifyTLS {
+            // Connector/C can accept a local peer using zero-configuration TLS
+            // when no trust anchor is specified. This mode promises CA validation.
+            let ca = profile.caPath.isEmpty ? "/etc/ssl/cert.pem" : profile.caPath
+            guard mysql_options(connection, MYSQL_OPT_SSL_CA, ca) == 0 else { throw failure() }
+        }
         guard profile.usesSocket || UInt16(profile.port).map({ $0 > 0 }) == true else { throw BrowserError("Enter a port between 1 and 65535.") }
         let server = profile.usesSocket ? "localhost" : profile.host
         let connected = mysql_real_connect(connection, server, profile.user, password,

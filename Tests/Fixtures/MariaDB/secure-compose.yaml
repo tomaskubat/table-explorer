@@ -1,0 +1,29 @@
+name: connectionbrowser-secure-uitest
+services:
+  database:
+    image: mariadb:10.11
+    platform: linux/arm64
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: catalog
+      MARIADB_USER: browser
+      MARIADB_PASSWORD: local-fixture
+    ports:
+      - "127.0.0.1:33462:3306"
+    command:
+      - --ssl-ca=/run/fixture-ca.crt
+      - --ssl-cert=/run/fixture-server.crt
+      - --ssl-key=/run/fixture-server.key
+      - --require-secure-transport=ON
+    tmpfs:
+      - /var/lib/mysql
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+      - ../../../.build/TLSFixture/ca.crt:/run/fixture-ca.crt:ro
+      - ../../../.build/TLSFixture/server.crt:/run/fixture-server.crt:ro
+      - ../../../.build/TLSFixture/server.key:/run/fixture-server.key:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 40

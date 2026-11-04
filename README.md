@@ -10,4 +10,6 @@ For the live MariaDB UI tests, start the disposable fixture before pressing ⌘U
 docker compose -f Tests/Fixtures/MariaDB/compose.yaml up -d --wait
 ```
 
-The fixture listens on `127.0.0.1:33461` and initializes the `catalog` database from `seed.sql`. Stop it with `docker compose -f Tests/Fixtures/MariaDB/compose.yaml down`. Its data directory is temporary. Without the fixture, the MariaDB integration test is reported as skipped.
+The fixture listens on `127.0.0.1:33461` and initializes the `catalog` database from `seed.sql`. Stop it with `docker compose -f Tests/Fixtures/MariaDB/compose.yaml down`. Its data directory is temporary. Without a fixture, its integration tests are reported as skipped.
+
+For transport coverage, start a second server with `bash Tests/Fixtures/MariaDB/start-tls.sh` and run `python3 Tests/Fixtures/MariaDB/socket-relay.py` in another terminal while the TCP fixture is up. The TLS test checks rejection of an unknown CA and reads the negotiated cipher with the fixture CA. The socket test connects through a private Unix socket on the Mac to the Docker database. Close the relay with Ctrl-C and stop the TLS server with `docker compose -f Tests/Fixtures/MariaDB/secure-compose.yaml down`.
