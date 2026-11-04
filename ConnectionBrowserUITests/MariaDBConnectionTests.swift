@@ -50,6 +50,10 @@ final class MariaDBConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.staticTexts["Czechia"].exists)
         XCTAssertTrue(workspace.staticTexts["1 of 1 rows"].exists)
         workspace.staticTexts["Czechia"].firstMatch.click()
+        let selectedName = workspace.staticTexts["detail-value-1"]
+        XCTAssertTrue(selectedName.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedName.value as? String, "Czechia")
+        XCTAssertTrue(selectedName.isHittable)
         let screenshot = XCTAttachment(screenshot: workspace.screenshot())
         screenshot.name = "MariaDB filtered table and row detail"
         screenshot.lifetime = .keepAlways

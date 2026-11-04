@@ -36,7 +36,7 @@ struct WorkspaceView: View {
                                     }
                                 }
                         }.listStyle(.plain) }
-                    }.padding(8).frame(minWidth: 135, idealWidth: 185, maxWidth: 270)
+                    }.padding(8).frame(minWidth: 175, idealWidth: 190, maxWidth: 250, alignment: .topLeading)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !workspace.tabs.isEmpty {
@@ -53,7 +53,7 @@ struct WorkspaceView: View {
                                     }
                                 }
                             }.padding(6)
-                        }
+                        }.fixedSize(horizontal: false, vertical: true)
                         Divider()
                     }
                     if let tab = workspace.active {
@@ -70,7 +70,7 @@ struct WorkspaceView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }.padding(8).frame(height: 80).accessibilityLabel("SQL Console").accessibilityIdentifier("SQL Console")
                     }
-                }.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                }.frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
                 if workspace.showDetails {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Row Detail").font(.headline).accessibilityIdentifier("row-detail-header")
@@ -85,12 +85,12 @@ struct WorkspaceView: View {
                             }
                         } else { Text("Select a row").foregroundStyle(.secondary) }
                         Spacer()
-                    }.padding(8).frame(minWidth: 130, idealWidth: 175, maxWidth: 250)
+                    }.padding(8).frame(minWidth: 150, idealWidth: 175, maxWidth: 220, alignment: .topLeading)
                 }
             }
         }
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
-        .frame(minWidth: 740, minHeight: 390)
+        .frame(minWidth: 980, minHeight: 590)
         .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
         .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
             Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true }
@@ -151,9 +151,10 @@ private struct WorkspaceTabView: View {
                 } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
             } else {
                 ResultTable(result: tab.displayed, selected: $tab.selected, hidden: tab.hiddenColumns, pending: tab.cellMarkers)
+                    .frame(minHeight: 130).layoutPriority(1)
                 if tab.object != nil { RowActions(workspace: workspace, tab: tab) }
             }
-            HStack {
+            HStack(spacing: 8) {
                 if tab.object?.kind == .table {
                     Button("Import CSV") { importShown = true }
                         .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
@@ -174,7 +175,7 @@ private struct WorkspaceTabView: View {
                     }.disabled(tab.offset + tab.result.rows.count >= tab.totalCount || tab.busy)
                 }
             }
-        }.padding(8)
+        }.controlSize(.small).padding(8)
         .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
         .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab) }
         .task(id: "\(tab.showStructure)-\(tab.section)") { if tab.showStructure { await workspace.loadStructure(tab) } }

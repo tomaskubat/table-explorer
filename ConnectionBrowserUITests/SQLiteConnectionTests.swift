@@ -54,7 +54,7 @@ final class SQLiteConnectionTests: XCTestCase {
         app.buttons["Preview DDL"].click()
         XCTAssertTrue(app.staticTexts["ddlPreview"].waitForExistence(timeout: 3))
         XCTAssertTrue((app.staticTexts["ddlPreview"].value as? String)?.contains("CREATE TABLE") == true)
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        let screenshot = XCTAttachment(screenshot: app.sheets.firstMatch.screenshot())
         screenshot.name = "SQLite schema preview"
         screenshot.lifetime = .keepAlways
         add(screenshot)

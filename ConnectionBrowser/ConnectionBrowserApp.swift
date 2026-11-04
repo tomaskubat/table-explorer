@@ -5,6 +5,8 @@ struct ConnectionBrowserApp: App {
     @State private var library = ConnectionLibrary()
     @State private var workspaces = WorkspaceRegistry()
 
+    init() { NSWindow.allowsAutomaticWindowTabbing = false }
+
     var body: some Scene {
         Window("Saved Connections", id: "connections") {
             SavedConnectionsView(library: library, workspaces: workspaces)
@@ -23,7 +25,9 @@ struct ConnectionBrowserApp: App {
                 ContentUnavailableView("Session Closed", systemImage: "bolt.slash", description: Text("Open a saved connection to reconnect."))
             }
         }
-        .defaultSize(width: 1040, height: 650)
+        .defaultSize(width: 1180, height: 720)
+        .windowResizability(.contentMinSize)
+        .restorationBehavior(.disabled)
         .commands { WorkspaceCommands() }
     }
 }

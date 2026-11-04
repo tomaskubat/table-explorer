@@ -34,7 +34,7 @@ struct TableControls: View {
                     Button(String(size)) { tab.limit = size; tab.offset = 0; reload() }
                 }
             }
-        }.fixedSize()
+        }.controlSize(.small)
         if tab.filterEditorVisible {
             VStack(alignment: .leading) {
                 ForEach($tab.filters) { $filter in

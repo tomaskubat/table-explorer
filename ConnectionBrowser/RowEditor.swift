@@ -40,10 +40,12 @@ struct RowActions: View {
     }
 
     @ViewBuilder private var changeButtons: some View {
-        Button("Preview Changes") { tab.commitError = nil; tab.previewShown = true }
-            .disabled(tab.changes.isEmpty || tab.busy)
-        Button("Discard Changes") { tab.discard() }.disabled(tab.changes.isEmpty || tab.busy)
-        if !tab.changes.isEmpty { Text("\(tab.changes.count) pending").font(.caption).bold() }
+        if !tab.changes.isEmpty {
+            Button("Preview Changes") { tab.commitError = nil; tab.previewShown = true }
+                .disabled(tab.busy)
+            Button("Discard Changes") { tab.discard() }.disabled(tab.busy)
+            Text("\(tab.changes.count) pending").font(.caption).bold()
+        }
     }
 }
 
