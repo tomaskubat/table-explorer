@@ -34,7 +34,9 @@ struct SavedConnectionsView: View {
                 if let issue = library.loadError { Text(issue).foregroundStyle(.red).padding(8) }
                 List(selection: $selection) {
                     ForEach(library.groups) { group in
-                        ConnectionGroupSection(group: group)
+                        ConnectionGroupSection(group: group) { profile in
+                            modify { try library.move(profile, to: group.id) }
+                        }
                     }
                 }
                 .contextMenu(forSelectionType: UUID.self) { ids in
@@ -112,13 +114,15 @@ struct SavedConnectionsView: View {
             Menu("Move to…") {
                 ForEach(library.groups.filter { $0.id != g }) { other in
                     Button(other.name) {
-                        modify {
-                            try library.update { groups in
-                                for i in groups.indices { groups[i].connections.removeAll { $0.id == p.id } }
-                                if let index = groups.firstIndex(where: { $0.id == other.id }) { groups[index].connections.append(p) }
-                            }
-                        }
+                        modify { try library.move(p.id, to: other.id) }
                     }
+                }
+            }
+        }
+        if let targetGroup = group?.id ?? found?.1 {
+            Menu("Sort Connections") {
+                ForEach(ProfileSort.allCases, id: \.self) { key in
+                    Button(key.rawValue) { modify { try library.sortConnections(in: targetGroup, by: key) } }
                 }
             }
         }
@@ -188,13 +192,14 @@ struct SavedConnectionsView: View {
 
 private struct ConnectionGroupSection: View {
     let group: ConnectionGroup
+    let move: (UUID) -> Void
     @State private var expanded = true
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             ForEach(group.connections) { profile in
                 HStack(spacing: 9) {
                     Text(profile.driver == .mariaDB ? "Mr" : "Sq").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white).frame(width: 26, height: 26).background(.teal, in: Circle())
+                        .foregroundStyle(.white).frame(width: 26, height: 26).background(profile.badgeColor, in: Circle())
                         .accessibilityLabel(profile.driver.rawValue)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
@@ -202,19 +207,23 @@ private struct ConnectionGroupSection: View {
                             if !profile.environment.isEmpty {
                                 Text(profile.environment).font(.caption2).padding(.horizontal, 3)
                                     .overlay { RoundedRectangle(cornerRadius: 2).strokeBorder(lineWidth: 0.8) }
-                                    .foregroundStyle(profile.environment == "local" ? Color.green : .orange)
+                                    .foregroundStyle(profile.environmentColor)
                             }
                         }
                         Text(profile.detail).font(.caption).foregroundStyle(.secondary)
                     }
-                }.frame(height: 33).tag(profile.id).listRowSeparator(.hidden)
+                }.frame(height: 33).draggable(profile.id.uuidString).tag(profile.id).listRowSeparator(.hidden)
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "powerplug.fill").frame(width: 26, height: 26)
+                Image(systemName: group.icon ?? "powerplug.fill").frame(width: 26, height: 26)
                     .overlay { Circle().strokeBorder(lineWidth: 1.4) }.foregroundStyle(.orange).accessibilityHidden(true)
                 Text(group.name).font(.headline)
-            }.frame(height: 32)
+            }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 32)
+                .dropDestination(for: String.self) { values, _ in
+                    guard values.count == 1, let id = UUID(uuidString: values[0]) else { return false }
+                    move(id); return true
+                }
         }.tag(group.id).listRowSeparator(.hidden)
     }
 }

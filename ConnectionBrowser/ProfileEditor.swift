@@ -9,6 +9,12 @@ struct GroupEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Connection Group").font(.title2)
             TextField("Group Name", text: $group.name).accessibilityIdentifier("Group Name")
+            Picker("Group Icon", selection: Binding(get: { group.icon ?? "powerplug.fill" }, set: { group.icon = $0 })) {
+                Label("Plug", systemImage: "powerplug.fill").tag("powerplug.fill")
+                Label("Folder", systemImage: "folder.fill").tag("folder.fill")
+                Label("Server", systemImage: "server.rack").tag("server.rack")
+                Label("Team", systemImage: "person.2.fill").tag("person.2.fill")
+            }
             if let error { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
@@ -16,7 +22,7 @@ struct GroupEditor: View {
                 Button("Save") {
                     do {
                         try library.update { groups in
-                            if let index = groups.firstIndex(where: { $0.id == group.id }) { groups[index].name = group.name }
+                            if let index = groups.firstIndex(where: { $0.id == group.id }) { groups[index].name = group.name; groups[index].icon = group.icon }
                             else { groups.append(group) }
                         }
                         dismiss()
@@ -37,6 +43,7 @@ struct ProfileEditor: View {
     @State private var sshPassword = ""
     @State private var sshPage = false
     @State private var error: String?
+    @State private var bootstrapEditor = false
     @State private var createdFile = false
     @State private var confirmCreate = false
     @State private var succeeded = false
@@ -52,7 +59,7 @@ struct ProfileEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connection Settings").font(.title2)
+            HStack { Text("Connection Settings").font(.title2); Spacer(); bootstrapButton }
             if profile.ssh != nil {
                 Picker("Connection Options", selection: $sshPage) {
                     Text("Database").tag(false)
@@ -126,7 +133,12 @@ struct ProfileEditor: View {
         Picker("Group", selection: $groupID) {
             ForEach(library.groups) { Text($0.name).tag($0.id) }
         }
-        TextField("Environment", text: $profile.environment)
+        HStack {
+            TextField("Environment", text: $profile.environment).accessibilityIdentifier("Environment")
+            Picker("Color Tag", selection: Binding(get: { profile.tagColor ?? "Teal" }, set: { profile.tagColor = $0 })) {
+                ForEach(["Teal", "Blue", "Purple", "Orange", "Red", "Green"], id: \.self) { Text($0) }
+            }
+        }
         Divider()
         if profile.driver == .mariaDB {
             Toggle("Over SSH", isOn: Binding(get: { profile.ssh != nil }, set: { enabled in
@@ -164,6 +176,20 @@ struct ProfileEditor: View {
             }
             if createdFile { Text("Database file created").foregroundStyle(.green) }
         }
+
+    }
+
+    private var bootstrapButton: some View {
+        Button("Bootstrap SQL…") { bootstrapEditor = true }
+            .sheet(isPresented: $bootstrapEditor) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Bootstrap SQL").font(.title2)
+                    Text("Review these statements after connecting. Testing a connection skips this script. Profile archives omit bootstrap SQL.")
+                    TextEditor(text: Binding(get: { profile.bootstrapSQL ?? "" }, set: { profile.bootstrapSQL = $0 }))
+                        .font(.system(.body, design: .monospaced)).accessibilityIdentifier("Bootstrap Editor")
+                    HStack { Spacer(); Button("Done") { bootstrapEditor = false }.keyboardShortcut(.defaultAction) }
+                }.padding(16).frame(width: 480, height: 280)
+            }
     }
 
     private var canSave: Bool { !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && canConnect }

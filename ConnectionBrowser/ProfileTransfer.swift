@@ -66,7 +66,7 @@ extension ConnectionLibrary {
     func exportGroups(_ exported: [ConnectionGroup], to file: URL) throws {
         var copies = exported
         for i in copies.indices {
-            for j in copies[i].connections.indices { copies[i].connections[j].rememberPassword = false; copies[i].connections[j].ssh?.rememberSecret = false }
+            for j in copies[i].connections.indices { copies[i].connections[j].bootstrapSQL = nil; copies[i].connections[j].rememberPassword = false; copies[i].connections[j].ssh?.rememberSecret = false }
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -83,7 +83,7 @@ extension ConnectionLibrary {
                     guard !input.name.isEmpty, input.driver == .sqlite ? input.filePath.hasPrefix("/") : (input.usesSocket ? !input.socketPath.isEmpty : UInt16(input.port).map { $0 > 0 } == true) else {
                         throw BrowserError("The archive contains an invalid connection profile.")
                     }
-                    var copy = input; copy.id = UUID(); copy.rememberPassword = false; copy.ssh?.rememberSecret = false
+                    var copy = input; copy.bootstrapSQL = nil; copy.id = UUID(); copy.rememberPassword = false; copy.ssh?.rememberSecret = false
                     return copy
                 }
                 groups.append(ConnectionGroup(name: source.name, connections: profiles))

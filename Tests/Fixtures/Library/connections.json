@@ -1,0 +1,65 @@
+[
+  {
+    "id": "65aaebf0-ba06-5cd1-b5d7-9347032b8972",
+    "name": "Catalog",
+    "connections": [
+      {
+        "id": "fb859b49-2fd4-5fe6-99a1-1b58fb41ed62",
+        "name": "catalog@local",
+        "driver": "MariaDB",
+        "environment": "local",
+        "tagColor": "Red",
+        "host": "127.0.0.1",
+        "port": "33461",
+        "user": "browser",
+        "database": "catalog",
+        "socketPath": "",
+        "usesSocket": false,
+        "verifyTLS": false,
+        "caPath": "",
+        "filePath": "",
+        "rememberPassword": false
+      },
+      {
+        "id": "d8dc0f0e-cf2e-5953-b41e-de3ef3d236c5",
+        "name": "catalog@stage",
+        "driver": "MariaDB",
+        "environment": "stage",
+        "tagColor": "Blue",
+        "host": "127.0.0.1",
+        "port": "33461",
+        "user": "browser",
+        "database": "catalog",
+        "socketPath": "",
+        "usesSocket": false,
+        "verifyTLS": false,
+        "caPath": "",
+        "filePath": "",
+        "rememberPassword": false
+      }
+    ]
+  },
+  {
+    "id": "0dcc7d70-ace3-5932-9b7b-1ee65a860d16",
+    "name": "Warehouse",
+    "connections": [
+      {
+        "id": "bf77903a-2efc-5ede-a53e-6d5272cddd97",
+        "name": "warehouse@local",
+        "driver": "MariaDB",
+        "environment": "local",
+        "tagColor": "Green",
+        "host": "127.0.0.1",
+        "port": "33461",
+        "user": "browser",
+        "database": "catalog",
+        "socketPath": "",
+        "usesSocket": false,
+        "verifyTLS": false,
+        "caPath": "",
+        "filePath": "",
+        "rememberPassword": false
+      }
+    ]
+  }
+]

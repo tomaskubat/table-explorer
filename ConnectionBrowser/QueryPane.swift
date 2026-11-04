@@ -16,7 +16,7 @@ struct QueryPane: View {
     var body: some View {
         HStack {
             Text(workspace.profile.environment.uppercased())
-                .foregroundStyle(workspace.profile.environment.lowercased().hasPrefix("pro") ? Color.red : .secondary)
+                .foregroundStyle(workspace.profile.environmentColor)
             Text(workspace.profile.name + " / " + workspace.database)
             Spacer()
             Text(position).monospacedDigit()
@@ -86,7 +86,7 @@ struct QueryPane: View {
     private func run(_ scope: SQLScope) {
         let commands = SQLDocument.commands(text: tab.sql, selection: tab.textSelection, scope: scope, driver: workspace.profile.driver)
         guard !commands.isEmpty else { return }
-        if workspace.profile.environment.lowercased().hasPrefix("pro") || safety == "Review every statement" || (safety != "Run immediately" && commands.contains(where: SQLDocument.requiresConfirmation)) { review = commands }
+        if workspace.profile.production || safety == "Review every statement" || (safety != "Run immediately" && commands.contains(where: SQLDocument.requiresConfirmation)) { review = commands }
         else { Task { await workspace.run(commands, on: tab) } }
     }
 }

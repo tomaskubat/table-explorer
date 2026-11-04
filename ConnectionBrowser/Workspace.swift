@@ -172,6 +172,8 @@ final class Workspace: Identifiable {
     var focusArea: FocusArea?
     var showDetails = true
     var showConsole = true
+    var bootstrapReview: [String] = []
+    private var offeredBootstrap = false
     var schemaDraft: SchemaDraft?
     var serverTool: ServerTool?
     var maintenance: MaintenanceAction?
@@ -191,6 +193,23 @@ final class Workspace: Identifiable {
         self.profile = profile; self.session = session; self.database = database
     }
 
+    func offerBootstrap() {
+        guard connected, !database.isEmpty, !offeredBootstrap else { return }
+        offeredBootstrap = true
+        if let sql = profile.bootstrapSQL { bootstrapReview = SQLDocument.statements(in: sql, driver: profile.driver).map(\.sql) }
+    }
+
+    func runBootstrap() async {
+        let statements = bootstrapReview
+        bootstrapReview = []
+        guard !statements.isEmpty else { return }
+        newQuery(text: profile.bootstrapSQL ?? "")
+        guard let tab = active else { return }
+        tab.title = "Bootstrap SQL"
+        await run(statements, on: tab)
+        await reloadObjects()
+    }
+
     func disconnect() async {
         guard connected, !hasRunningTasks else { return }
         connected = false
@@ -206,7 +225,9 @@ final class Workspace: Identifiable {
             if profile.driver == .mariaDB { target.database = database }
             database = try await session.open(target, password: password, sshPassword: sshPassword)
             connected = true
+            offeredBootstrap = false
             await reloadObjects()
+            offerBootstrap()
             if let active, active.object != nil && active.changes.isEmpty { await load(active) }
         } catch { record(error) }
     }
@@ -217,6 +238,7 @@ final class Workspace: Identifiable {
         clearDatabaseResults()
         database = name
         await reloadObjects()
+        offerBootstrap()
     }
 
     func clearDatabaseResults() {

@@ -23,6 +23,8 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var filePath = ""
     var rememberPassword = false
     var ssh: SSHSettings?
+    var bootstrapSQL: String?
+    var tagColor: String?
 
     var detail: String {
         if driver == .sqlite { return filePath }
@@ -34,6 +36,7 @@ struct ConnectionGroup: Identifiable, Codable {
     var id = UUID()
     var name: String
     var connections: [ConnectionProfile] = []
+    var icon: String?
 }
 
 struct BrowserError: LocalizedError {
@@ -104,19 +107,6 @@ final class ConnectionLibrary {
                 groups = try JSONDecoder().decode([ConnectionGroup].self, from: Data(contentsOf: file))
             } else {
                 groups = [ConnectionGroup(name: "Connections")]
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--sample-connections") {
-                    groups = [
-                        ConnectionGroup(name: "Catalog", connections: [
-                            ConnectionProfile(name: "catalog@local", database: "catalog"),
-                            ConnectionProfile(name: "catalog@stage", environment: "stage", database: "catalog_stage")
-                        ]),
-                        ConnectionGroup(name: "Warehouse", connections: [
-                            ConnectionProfile(name: "warehouse@local", database: "warehouse")
-                        ])
-                    ]
-                }
-                #endif
             }
         } catch { loadError = "Could not load your connections. \(error.localizedDescription)" }
     }
@@ -144,7 +134,33 @@ final class ConnectionLibrary {
         groups = next
     }
 
+    func move(_ profileID: UUID, to groupID: UUID) throws {
+        try update { groups in
+            guard let to = groups.firstIndex(where: { $0.id == groupID }),
+                  let from = groups.firstIndex(where: { $0.connections.contains { $0.id == profileID } }),
+                  let row = groups[from].connections.firstIndex(where: { $0.id == profileID }) else {
+                throw BrowserError("The connection or destination group is no longer in the library.")
+            }
+            guard from != to else { return }
+            let profile = groups[from].connections.remove(at: row)
+            groups[to].connections.append(profile)
+        }
+    }
+
+    func sortConnections(in groupID: UUID, by key: ProfileSort) throws {
+        try update { groups in
+            guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+            groups[index].connections.sort { lhs, rhs in
+                let order = key.value(lhs).localizedStandardCompare(key.value(rhs))
+                return order == .orderedSame ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending : order == .orderedAscending
+            }
+        }
+    }
+
     func save(_ profile: ConnectionProfile, in group: UUID, password: String, sshPassword: String = "") throws {
+        if let script = profile.bootstrapSQL, QueryNotebook.containsCredentials(script) {
+            throw BrowserError("Remove credential statements from the bootstrap script before saving the profile.")
+        }
         let old = groups.flatMap(\.connections).first { $0.id == profile.id }
         let touchesKeychain = profile.rememberPassword || old?.rememberPassword == true
         let original = touchesKeychain ? try ProfilePassword.read(profile.id) : ""

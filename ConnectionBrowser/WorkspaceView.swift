@@ -36,16 +36,48 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
         .sheet(isPresented: $workspace.objectSearchShown) { ObjectSearch(workspace: workspace) }
         .sheet(isPresented: $workspace.databaseSelectorShown) { DatabaseChooser(workspace: workspace) }
-        .toolbar {
-            if workspace.profile.driver == .mariaDB {
-                Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
-            }
-            Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }
-            Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
-            Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
-            Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
+        .sheet(isPresented: Binding(get: { !workspace.bootstrapReview.isEmpty }, set: { if !$0 { workspace.bootstrapReview = [] } })) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Review Bootstrap SQL").font(.title2)
+                Text(workspace.profile.name + " / " + workspace.database)
+                Text(workspace.profile.environment.uppercased()).foregroundStyle(workspace.profile.environmentColor)
+                ScrollView {
+                    Text(workspace.bootstrapReview.joined(separator: "\n")).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                }
+                Spacer()
+                HStack {
+                    Spacer(); Button("Skip Bootstrap") { workspace.bootstrapReview = [] }.keyboardShortcut(.cancelAction)
+                    Button("Run Bootstrap") { Task { await workspace.runBootstrap() } }
+                }
+            }.padding(18).frame(width: 480, height: 300)
         }
-        .task { await workspace.reloadObjects() }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 5) {
+                    Text(workspace.profile.driver.rawValue)
+                    if !workspace.profile.environment.isEmpty {
+                        Text(workspace.profile.environment.uppercased()).fontWeight(.semibold).foregroundStyle(workspace.profile.environmentColor)
+                    }
+                    if let object = workspace.active?.object { Text("· " + object.name) }
+                }.font(.caption)
+            }
+            ToolbarItemGroup {
+                if workspace.profile.driver == .mariaDB {
+                    Button("Database", systemImage: "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
+                }
+                Button("New Query", systemImage: "plus.rectangle") { workspace.newQuery() }.help("New query (⌘T)")
+                Button("Item List", systemImage: "sidebar.left") { workspace.showItems.toggle() }
+                    .tint(workspace.showItems ? .accentColor : .secondary)
+                    .accessibilityValue(workspace.showItems ? "Shown" : "Hidden").help("Show or hide the item list")
+                Button("SQL Console", systemImage: "terminal") { workspace.showConsole.toggle() }
+                    .tint(workspace.showConsole ? .accentColor : .secondary)
+                    .accessibilityValue(workspace.showConsole ? "Shown" : "Hidden").help("Show or hide the SQL console (⇧⌘C)")
+                Button("Row Detail", systemImage: "sidebar.right") { workspace.showDetails.toggle() }
+                    .tint(workspace.showDetails ? .accentColor : .secondary)
+                    .accessibilityValue(workspace.showDetails ? "Shown" : "Hidden").help("Show or hide row detail (Space in the grid)")
+            }
+        }
+        .task { await workspace.reloadObjects(); workspace.offerBootstrap() }
     }
     private var layout: some View {
         VStack(spacing: 0) {
