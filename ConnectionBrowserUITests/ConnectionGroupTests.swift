@@ -7,11 +7,11 @@ final class ConnectionGroupTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let window = app.windows["Uložená spojení"]
+        let window = app.windows["Saved Connections"]
         XCTAssertTrue(window.waitForExistence(timeout: 5))
-        let local = window.staticTexts["katalog@local"]
-        let stage = window.staticTexts["katalog@stage"]
-        let neighbor = window.staticTexts["sklad@local"]
+        let local = window.staticTexts["catalog@local"]
+        let stage = window.staticTexts["catalog@stage"]
+        let neighbor = window.staticTexts["warehouse@local"]
         let toggle = window.disclosureTriangles.firstMatch
 
         XCTAssertTrue(local.waitForExistence(timeout: 3))
@@ -25,7 +25,7 @@ final class ConnectionGroupTests: XCTestCase {
         XCTAssertFalse(stage.exists)
         XCTAssertTrue(neighbor.isHittable)
         XCTAssertLessThan(neighbor.frame.minY, originalNeighborY)
-        attach(window, as: "Sbalená skupina")
+        attach(window, as: "Collapsed group")
 
         toggle.click()
         XCTAssertTrue(local.waitForExistence(timeout: 3))
@@ -34,7 +34,7 @@ final class ConnectionGroupTests: XCTestCase {
         XCTAssertLessThan(local.frame.minY, stage.frame.minY)
         XCTAssertLessThan(stage.frame.minY, neighbor.frame.minY)
         XCTAssertEqual(neighbor.frame.minY, originalNeighborY, accuracy: 1)
-        attach(window, as: "Rozbalená skupina")
+        attach(window, as: "Expanded group")
     }
 
     @MainActor

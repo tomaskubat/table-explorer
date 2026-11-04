@@ -75,9 +75,9 @@
 			isa = PBXProject;
 			attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600; TargetAttributes = {AC0000000000000000000011 = {TestTargetID = AC0000000000000000000010; }; }; };
 			buildConfigurationList = AC0000000000000000000040;
-			developmentRegion = cs;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (cs, Base);
+			knownRegions = (en, Base);
 			mainGroup = AC0000000000000000000002;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AC0000000000000000000003 /* Products */;
@@ -101,6 +101,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CODE_SIGN_IDENTITY = "-";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
@@ -117,6 +118,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CODE_SIGN_IDENTITY = "-";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -133,7 +135,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
-				INFOPLIST_KEY_CFBundleDisplayName = "Databáze";
+				INFOPLIST_KEY_CFBundleDisplayName = "Connection Browser";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				PRODUCT_BUNDLE_IDENTIFIER = "local.connectionbrowser.app";
 			};
@@ -146,7 +148,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				MARKETING_VERSION = "0.1";
 				CURRENT_PROJECT_VERSION = "1";
-				INFOPLIST_KEY_CFBundleDisplayName = "Databáze";
+				INFOPLIST_KEY_CFBundleDisplayName = "Connection Browser";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				PRODUCT_BUNDLE_IDENTIFIER = "local.connectionbrowser.app";
 			};

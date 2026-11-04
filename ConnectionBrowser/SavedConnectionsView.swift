@@ -13,12 +13,12 @@ private struct ConnectionGroup: Identifiable {
     var id: String { name }
 
     static let examples = [
-        ConnectionGroup(name: "Katalog", connections: [
-            SavedConnection(id: "catalog-local", name: "katalog@local", detail: "127.0.0.1 · katalog", environment: "loc"),
-            SavedConnection(id: "catalog-stage", name: "katalog@stage", detail: "SSH · katalog_stage", environment: "sta")
+        ConnectionGroup(name: "Catalog", connections: [
+            SavedConnection(id: "catalog-local", name: "catalog@local", detail: "127.0.0.1 · catalog", environment: "loc"),
+            SavedConnection(id: "catalog-stage", name: "catalog@stage", detail: "SSH · catalog_stage", environment: "sta")
         ]),
-        ConnectionGroup(name: "Sklad", connections: [
-            SavedConnection(id: "warehouse-local", name: "sklad@local", detail: "127.0.0.1 · sklad", environment: "loc")
+        ConnectionGroup(name: "Warehouse", connections: [
+            SavedConnection(id: "warehouse-local", name: "warehouse@local", detail: "127.0.0.1 · warehouse", environment: "loc")
         ])
     ]
 }
@@ -33,9 +33,9 @@ struct SavedConnectionsView: View {
                     .font(.system(size: 46, weight: .light))
                     .foregroundStyle(.orange)
                     .accessibilityHidden(true)
-                Text("Databáze")
+                Text("Connection Browser")
                     .font(.system(size: 24, weight: .light))
-                Text("Správce spojení")
+                Text("Saved connections")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
