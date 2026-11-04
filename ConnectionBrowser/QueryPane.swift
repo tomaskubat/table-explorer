@@ -55,7 +55,9 @@ struct QueryPane: View {
             }.accessibilityIdentifier("Statement Result")
         }
         if let elapsed = tab.lastDuration {
-            Text(String(format: "%.3f s", elapsed) + (tab.result.columns.isEmpty && tab.error == nil ? " · \(tab.result.affectedRows) affected rows" : ""))
+            let affected = tab.result.affectedRows
+            let count = affected == 1 ? "1 affected row" : "\(affected) affected rows"
+            Text(String(format: "%.3f s", elapsed) + (tab.result.columns.isEmpty && tab.error == nil ? " · " + count : ""))
                 .font(.caption).foregroundStyle(.secondary)
         }
         Color.clear.frame(height: 0)

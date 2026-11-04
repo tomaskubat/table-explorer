@@ -32,8 +32,8 @@ final class BootstrapTests: XCTestCase {
         window.buttons["Reconnect"].click()
         XCTAssertTrue(app.buttons["Run Bootstrap"].waitForExistence(timeout: 5))
         app.buttons["Run Bootstrap"].click()
-        XCTAssertTrue(window.buttons["Bootstrap SQL"].waitForExistence(timeout: 5))
-        XCTAssertTrue(window.staticTexts["1 affected rows"].firstMatch.exists || window.staticTexts.containing(NSPredicate(format: "value CONTAINS '1 affected rows'")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(window.textViews["SQL Editor"].waitForExistence(timeout: 5))
+        XCTAssertTrue(window.staticTexts.matching(NSPredicate(format: "value ENDSWITH %@", " · 1 affected row")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(try name(in: db), "Startup")
     }
 

@@ -66,7 +66,7 @@ final class WorkspaceLayoutTests: XCTestCase {
         city.click()
         XCUIElement.perform(withKeyModifiers: .shift) { next.click() }
         attach(window, "SQLite two selected rows")
-        XCTAssertTrue(window.staticTexts["2 rows selected"].waitForExistence(timeout: 4))
+        XCTAssertTrue(window.staticTexts["2 of 3 rows selected"].waitForExistence(timeout: 4))
         window.buttons["Export Data"].click()
         let export = app.sheets.firstMatch
         XCTAssertTrue(export.textFields["Destination File"].waitForExistence(timeout: 4))

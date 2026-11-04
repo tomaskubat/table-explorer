@@ -17,7 +17,7 @@ struct WorkspaceView: View {
         .navigationTitle("\(workspace.profile.name) — \(workspace.database.isEmpty ? "No Database" : workspace.database)")
         .frame(minWidth: 980, minHeight: 590)
         .onChange(of: panelFocus) { if let panelFocus { workspace.focusArea = panelFocus } }
-        .background(WorkspaceWindowGuard(workspace: workspace).frame(width: 0, height: 0))
+        .background(WorkspaceWindowGuard(workspace: workspace, closeActiveTab: requestCloseActiveTab).frame(width: 0, height: 0))
         .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
             Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.closeAfterCommit = true; tab.previewShown = true }
             Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
@@ -33,6 +33,7 @@ struct WorkspaceView: View {
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
         .focusedSceneValue(\.activeConnectionTab, workspace.active)
+        .focusedSceneValue(\.closeWorkspaceTab, requestCloseActiveTab)
         .sheet(isPresented: $workspace.recoveryShown) { DraftRecoveryView(workspace: workspace) }
         .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
         .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
@@ -61,7 +62,7 @@ struct WorkspaceView: View {
     }
     private var layout: some View {
         VStack(spacing: 0) {
-            WorkspaceTitleBar(workspace: workspace) { if let tab = workspace.active { requestClose(tab) } }
+            WorkspaceTitleBar(workspace: workspace, closeTab: requestCloseActiveTab)
             if !workspace.connected {
                 HStack {
                     Label("Disconnected", systemImage: "bolt.slash")
@@ -169,7 +170,12 @@ struct WorkspaceView: View {
         }.frame(height: 25)
     }
 
+    private func requestCloseActiveTab() {
+        if let tab = workspace.active { requestClose(tab) }
+    }
+
     private func requestClose(_ tab: WorkspaceTab) {
+        guard !tab.busy else { return }
         if !tab.changes.isEmpty { closing = tab }
         else if tab.unsavedSQL { closingSQL = tab }
         else { workspace.closeTab(tab) }
@@ -261,7 +267,10 @@ private struct WorkspaceTabView: View {
 
     @ViewBuilder private var status: some View {
         Group {
-            if tab.selectedRows.count > 1 { Text("\(tab.selectedRows.count) rows selected") }
+            if !tab.showStructure, tab.object != nil, !tab.selectedRows.isEmpty {
+                let count = tab.totalCount + tab.changes.filter { $0.original == nil }.count
+                Text("\(tab.selectedRows.count) of \(count) \(count == 1 ? "row" : "rows") selected")
+            }
             else if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows") }
             else { Text("\(tab.result.rows.count) rows\(tab.result.truncated ? " (display limit reached)" : "")") }
         }.font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()

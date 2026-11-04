@@ -23,7 +23,7 @@ final class TableControlsTests: XCTestCase {
         fields.element(boundBy: 0).replaceText(with: "1")
         window.buttons["Add Condition"].click(); fields.element(boundBy: 1).replaceText(with: "2")
         window.buttons.matching(identifier: "Apply condition").element(boundBy: 0).click()
-        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertTrue(window.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "1 of 1 row")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(cell.value as? String, "Brno")
         fields.element(boundBy: 1).click(); app.typeKey(.return, modifierFlags: .command)
         XCTAssertTrue(window.staticTexts["0 of 0 rows"].waitForExistence(timeout: 5))

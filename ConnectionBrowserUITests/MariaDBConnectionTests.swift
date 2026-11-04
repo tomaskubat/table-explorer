@@ -48,7 +48,7 @@ final class MariaDBConnectionTests: XCTestCase {
         workspace.buttons["Apply Filters"].click()
         XCTAssertTrue(workspace.staticTexts["Austria"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(workspace.staticTexts["Czechia"].exists)
-        XCTAssertTrue(workspace.staticTexts["1 of 1 rows"].exists)
+        XCTAssertTrue(workspace.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "1 of 1 row")).firstMatch.exists)
         workspace.staticTexts["Czechia"].firstMatch.click()
         let selectedName = workspace.staticTexts["detail-value-1"]
         XCTAssertTrue(selectedName.waitForExistence(timeout: 4))

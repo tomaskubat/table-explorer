@@ -47,7 +47,7 @@ final class GridInteractionTests: XCTestCase {
         XCTAssertFalse(app.menuItems["Toggle Line Comment"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
         XCUIElement.perform(withKeyModifiers: .command) { kosice.click() }
-        XCTAssertTrue(window.staticTexts["2 rows selected"].exists)
+        XCTAssertTrue(window.staticTexts["2 of 3 rows selected"].exists)
         kosice.rightClick()
         app.menus.containing(.menuItem, identifier: "Copy Cell Value").menuItems["Duplicate"].firstMatch.click()
         window.buttons["Preview Changes"].click()
@@ -65,20 +65,20 @@ final class GridInteractionTests: XCTestCase {
         XCTAssertTrue(app.menuItems["nazev = 'Graz'"].exists)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(window.staticTexts["2 rows selected"].exists)
+        XCTAssertTrue(window.staticTexts["2 of 3 rows selected"].exists)
 
         window.staticTexts["grid-0-poznamka"].rightClick()
         app.menuItems["Quick Filter"].click()
         XCTAssertFalse(app.menuItems["poznamka = ''"].exists)
         app.menuItems["poznamka IS NULL"].click()
-        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertTrue(window.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "1 of 1 row")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(window.staticTexts["grid-0-nazev"].value as? String, "Brno")
         window.buttons["Unset"].click()
         XCTAssertTrue(window.staticTexts["grid-2-poznamka"].waitForExistence(timeout: 4))
         window.staticTexts["grid-2-poznamka"].rightClick()
         app.menuItems["Quick Filter"].click()
         app.menuItems["poznamka = ''"].click()
-        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertTrue(window.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "1 of 1 row")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(window.staticTexts["grid-0-nazev"].value as? String, "Graz")
 
         let graz = window.staticTexts["grid-0-nazev"]

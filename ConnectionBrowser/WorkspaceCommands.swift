@@ -3,7 +3,12 @@ import UniformTypeIdentifiers
 
 private struct WorkspaceKey: FocusedValueKey { typealias Value = Workspace }
 private struct WorkspaceTabKey: FocusedValueKey { typealias Value = WorkspaceTab }
+private struct CloseTabActionKey: FocusedValueKey { typealias Value = () -> Void }
 extension FocusedValues {
+    var closeWorkspaceTab: (() -> Void)? {
+        get { self[CloseTabActionKey.self] }
+        set { self[CloseTabActionKey.self] = newValue }
+    }
     var activeConnectionTab: WorkspaceTab? {
         get { self[WorkspaceTabKey.self] }
         set { self[WorkspaceTabKey.self] = newValue }
@@ -18,6 +23,7 @@ struct WorkspaceCommands: Commands {
     @FocusedValue(\.connectionWorkspace) private var workspace
     @FocusedValue(\.activeConnectionTab) private var activeTab
     @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.closeWorkspaceTab) private var closeTab
     @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
     var body: some Commands {
@@ -29,6 +35,7 @@ struct WorkspaceCommands: Commands {
             Button("Recover SQL Draft…") { workspace?.recoveryShown = true }.disabled(workspace == nil)
             if let workspace, let tab = activeTab {
                 Divider()
+                Button("Close Tab") { closeTab?() }.keyboardShortcut("w").disabled(tab.busy)
                 if tab.object == nil {
                     Button("Save Query") { workspace.saveActiveTab() }
                         .keyboardShortcut("s")

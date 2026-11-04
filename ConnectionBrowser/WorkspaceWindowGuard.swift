@@ -1,18 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// Intercept the standard close button and Cmd-W while a draft or operation is
-/// live. Keep SwiftUI's own window delegate responsible for everything else.
+/// Protect window closure independently of the workspace tab shortcuts.
 struct WorkspaceWindowGuard: NSViewRepresentable {
     let workspace: Workspace
+    let closeActiveTab: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(workspace) }
+    func makeCoordinator() -> Coordinator { Coordinator(workspace, closeActiveTab: closeActiveTab) }
     func makeNSView(context: Context) -> HookView {
         let view = HookView()
         view.coordinator = context.coordinator
         return view
     }
-    func updateNSView(_ view: HookView, context: Context) { context.coordinator.attach(to: view.window) }
+    func updateNSView(_ view: HookView, context: Context) {
+        context.coordinator.closeActiveTab = closeActiveTab
+        context.coordinator.attach(to: view.window)
+    }
     static func dismantleNSView(_ view: HookView, coordinator: Coordinator) { coordinator.detach() }
 
     final class HookView: NSView {
@@ -22,27 +25,33 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSWindowDelegate {
         let workspace: Workspace
         private weak var window: NSWindow?
-        private var saveMonitor: Any?
+        var closeActiveTab: () -> Void
+        private var shortcutMonitor: Any?
         // AppKit dispatches window delegate callbacks on the main thread. The
         // Objective-C forwarding hooks themselves have no isolation annotations.
         nonisolated(unsafe) private weak var original: (any NSWindowDelegate)?
-        init(_ workspace: Workspace) { self.workspace = workspace }
+        init(_ workspace: Workspace, closeActiveTab: @escaping () -> Void) {
+            self.workspace = workspace; self.closeActiveTab = closeActiveTab
+        }
         func attach(to window: NSWindow?) {
             guard let window, window.delegate !== self else { return }
             detach()
             original = window.delegate; self.window = window; workspace.window = window; window.delegate = self
-            // DocumentGroup also installs the standard Save key equivalent. Only
-            // intercept the key in this workspace; native documents keep theirs.
-            saveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
+            // Native documents and sheets keep their own Save and Close commands.
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
                 guard let self, let window, window.isKeyWindow, window.attachedSheet == nil,
-                      event.window === window, event.charactersIgnoringModifiers?.lowercased() == "s",
+                      event.window === window,
                       event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command else { return event }
-                self.workspace.saveActiveTab()
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "s": self.workspace.saveActiveTab()
+                case "w" where self.workspace.active != nil: self.closeActiveTab()
+                default: return event
+                }
                 return nil
             }
         }
         func detach() {
-            if let saveMonitor { NSEvent.removeMonitor(saveMonitor); self.saveMonitor = nil }
+            if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
             if workspace.window === window { workspace.window = nil }
             if window?.delegate === self { window?.delegate = original }
             window = nil; original = nil

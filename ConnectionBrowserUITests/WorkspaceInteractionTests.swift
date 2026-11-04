@@ -52,6 +52,26 @@ final class WorkspaceInteractionTests: XCTestCase {
         }
     }
 
+    @MainActor func testCommandWClosesOnlyTheActiveTabThenLeavesTheSessionOpen() throws {
+        continueAfterFailure = false
+        try inCatalog { w in
+            w.staticTexts["zeme"].click()
+            XCTAssertTrue(w.staticTexts["grid-0-kod"].waitForExistence(timeout: 4))
+            w.typeKey("w", modifierFlags: .command)
+            XCTAssertTrue(w.staticTexts["grid-0-nazev"].waitForExistence(timeout: 3))
+            XCTAssertEqual(w.staticTexts["grid-0-nazev"].value as? String, "Brno")
+            w.typeKey("w", modifierFlags: .command)
+            XCTAssertTrue(w.staticTexts["No Open Tabs"].waitForExistence(timeout: 3))
+            w.buttons["New Query"].click()
+            w.textViews["SQL Editor"].replaceText(with: "SELECT 42;")
+            w.typeKey("w", modifierFlags: .command)
+            let app = XCUIApplication()
+            XCTAssertTrue(app.buttons["Keep Editing"].waitForExistence(timeout: 3))
+            app.buttons["Keep Editing"].click()
+            XCTAssertEqual(w.textViews["SQL Editor"].value as? String, "SELECT 42;")
+        }
+    }
+
     @MainActor func testCloseOnInactiveTabPreservesCurrentTableAndDirtyQuery() throws {
         continueAfterFailure = false
         try inCatalog { w in
