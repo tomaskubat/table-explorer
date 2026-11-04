@@ -31,10 +31,28 @@ struct SchemaDraft: Identifiable {
     var indexes: [DraftIndex] = []
     var foreignKeys: [DraftForeignKey] = []
     var select = "SELECT "
+    var parameters = ""
+    var returnType = "INTEGER"
+    var routineBody = ""
+    var isRoutine: Bool { kind == .procedure || kind == .function }
 
     func ddl(_ driver: DatabaseDriver) throws -> [String] {
         let quote = DatabaseSession.identifier
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !name.contains("\0") else { throw BrowserError("Enter an object name.") }
+        if isRoutine {
+            guard driver == .mariaDB else { throw BrowserError("SQLite does not support stored routines.") }
+            let body = routineBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            let returns = returnType.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty, !body.contains("\0"), !parameters.contains("\0"),
+                  !parameters.contains(";"), !returns.contains(";"), kind != .function || !returns.isEmpty else {
+                throw BrowserError("Enter a routine body and valid parameter and return types.")
+            }
+            if body.range(of: #"(?im)^\s*DELIMITER\b"#, options: .regularExpression) != nil {
+                throw BrowserError("Enter the routine body directly, without a client DELIMITER directive.")
+            }
+            let header = "CREATE " + kind.rawValue.uppercased() + " " + quote(name) + "(" + parameters + ")"
+            return [header + (kind == .function ? " RETURNS " + returns : "") + " SQL SECURITY INVOKER\n" + body]
+        }
         if kind == .view {
             let queries = SQLDocument.statements(in: select, driver: driver)
             guard queries.count == 1 else { throw BrowserError("A view requires a single SELECT statement.") }

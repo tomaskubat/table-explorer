@@ -18,9 +18,9 @@ struct ExportView: View {
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(workspace: Workspace, tab: WorkspaceTab, pageOnly: Bool = false) {
+    init(workspace: Workspace, tab: WorkspaceTab, initialScope: ExportScope? = nil) {
         self.workspace = workspace; self.tab = tab
-        _scope = State(initialValue: tab.object == nil || pageOnly ? .result : .filtered)
+        _scope = State(initialValue: initialScope ?? (tab.object == nil ? .result : .filtered))
         _included = State(initialValue: Set(tab.result.columns).subtracting(tab.hiddenColumns))
         _tableName = State(initialValue: tab.object?.name ?? "query_result")
     }

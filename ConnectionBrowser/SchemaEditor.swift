@@ -17,6 +17,13 @@ struct SchemaEditor: View {
                     Text("View Definition").font(.headline)
                     TextEditor(text: $draft.select).font(.system(.body, design: .monospaced))
                         .accessibilityIdentifier("View Definition")
+                } else if draft.isRoutine {
+                    TextField("Parameters", text: $draft.parameters)
+                    if draft.kind == .function { TextField("Return Type", text: $draft.returnType) }
+                    Text("Routine Body").font(.headline)
+                    TextEditor(text: $draft.routineBody).font(.system(.body, design: .monospaced))
+                        .accessibilityIdentifier("Routine Body")
+                    Text("Compound statements can use BEGIN and END. The routine runs with the caller’s privileges.").font(.caption)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {

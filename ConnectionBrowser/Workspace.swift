@@ -164,6 +164,8 @@ final class Workspace: Identifiable {
     var showConsole = true
     var schemaDraft: SchemaDraft?
     var serverTool: ServerTool?
+    var overviewShown = false
+    var operation: ObjectOperationTarget?
     var maintenance: MaintenanceAction?
     var maintenanceBusy = false
     var objectSearchShown = false
@@ -229,9 +231,14 @@ final class Workspace: Identifiable {
             error = nil
         } catch { record(error) }
     }
-    func open(_ object: DatabaseObject) async {
-        if let existing = tabs.first(where: { $0.object == object }) { activeID = existing.id; return }
+    func open(_ object: DatabaseObject, newTab: Bool = false, structure: Bool = false) async {
+        if !newTab, let existing = tabs.first(where: { $0.object == object }) {
+            activeID = existing.id
+            if structure { existing.showStructure = true }
+            return
+        }
         let tab = WorkspaceTab(title: object.name, object: object)
+        tab.showStructure = structure
         tabs.append(tab)
         activeID = tab.id
         if object.kind == .procedure || object.kind == .function {

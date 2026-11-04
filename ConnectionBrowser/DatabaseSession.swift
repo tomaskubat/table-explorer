@@ -23,7 +23,7 @@ struct QueryResult: Sendable {
 }
 
 struct DatabaseObject: Hashable, Identifiable, Sendable {
-    enum Kind: String, Sendable { case table = "Table", view = "View", procedure = "Procedure", function = "Function" }
+    enum Kind: String, CaseIterable, Sendable { case table = "Table", view = "View", procedure = "Procedure", function = "Function" }
     let name: String
     let kind: Kind
     var id: Self { self }

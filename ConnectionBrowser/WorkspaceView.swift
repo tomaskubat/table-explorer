@@ -24,19 +24,7 @@ struct WorkspaceView: View {
                         }.pickerStyle(.segmented).labelsHidden().onChange(of: navigator) { search = "" }
                         TextField(navigator == "Items" ? "Search for item" : "Search queries", text: $search)
                         if navigator != "Items" { QueryNavigator(workspace: workspace, history: navigator == "History", search: search) }
-                        else { List(workspace.objects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { object in
-                            Label(object.name, systemImage: object.kind == .view ? "eye" : "tablecells")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { Task { await workspace.open(object) } }
-                                .contextMenu {
-                                    Button("Open in Tab") { Task { await workspace.open(object) } }
-                                    Button("Copy Name") {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(object.name, forType: .string)
-                                    }
-                                }
-                        }.listStyle(.plain) }
+                        else { ObjectListView(workspace: workspace, search: search) }
                     }.padding(8).frame(minWidth: 175, idealWidth: 190, maxWidth: 250, alignment: .topLeading)
                 }
                 VStack(alignment: .leading, spacing: 0) {
@@ -112,6 +100,8 @@ struct WorkspaceView: View {
             Button("Keep Editing", role: .cancel) {}
         }
         .focusedSceneValue(\.connectionWorkspace, workspace)
+        .sheet(item: $workspace.operation) { ObjectOperationView(workspace: workspace, target: $0) }
+        .sheet(isPresented: $workspace.overviewShown) { OverviewView(workspace: workspace) }
         .sheet(item: $workspace.schemaDraft) { draft in SchemaEditor(workspace: workspace, draft: draft) }
         .sheet(item: $workspace.maintenance) { action in MaintenanceView(workspace: workspace, action: action) }
         .sheet(item: $workspace.serverTool) { tool in ServerToolSheet(workspace: workspace, tool: tool) }
@@ -136,7 +126,7 @@ struct WorkspaceView: View {
 private struct WorkspaceTabView: View {
     @State private var importShown = false
     @State private var exportShown = false
-    @State private var exportPageOnly = false
+    @State private var exportScope: ExportScope?
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
     var body: some View {
@@ -178,7 +168,7 @@ private struct WorkspaceTabView: View {
                     Button("Import CSV") { importShown = true }
                         .disabled(!workspace.connected || tab.busy || tab.schema?.transactional != true || !tab.changes.isEmpty)
                 }
-                Button("Export Data") { exportPageOnly = false; exportShown = true }
+                Button("Export Data") { exportScope = nil; exportShown = true }
                     .disabled(tab.result.columns.isEmpty || tab.busy || !tab.changes.isEmpty || !workspace.connected)
                 if tab.selectedRows.count > 1 { Text("\(tab.selectedRows.count) rows selected").font(.caption) }
                 if tab.object != nil { Text("\(tab.result.rows.count) of \(tab.totalCount) rows").font(.caption) }
@@ -197,11 +187,12 @@ private struct WorkspaceTabView: View {
             }
         }.controlSize(.small).padding(8)
         .sheet(isPresented: $importShown) { ImportCSVView(workspace: workspace, tab: tab) }
-        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab, pageOnly: exportPageOnly) }
-        .onChange(of: tab.transfer) {
+        .sheet(isPresented: $exportShown) { ExportView(workspace: workspace, tab: tab, initialScope: exportScope) }
+        .onChange(of: tab.transfer, initial: true) {
             switch tab.transfer {
             case .importCSV: importShown = true
-            case .exportPage: exportPageOnly = true; exportShown = true
+            case .exportPage: exportScope = .result; exportShown = true
+            case .exportTable: exportScope = .table; exportShown = true
             case nil: break
             }
             tab.transfer = nil

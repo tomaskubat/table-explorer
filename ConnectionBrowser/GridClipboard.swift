@@ -1,6 +1,6 @@
 import Foundation
 
-enum GridTransfer { case importCSV, exportPage }
+enum GridTransfer { case importCSV, exportPage, exportTable }
 enum RowCopyFormat: String, CaseIterable { case text = "Plain Text", json = "JSON", html = "HTML", markdown = "Markdown Table", csv = "CSV", csvHeader = "CSV with Header", sql = "SQL INSERT Statements" }
 
 extension SQLValue {

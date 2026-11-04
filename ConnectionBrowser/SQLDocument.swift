@@ -126,7 +126,7 @@ struct FavoriteQuery: Identifiable, Codable {
 
 @MainActor @Observable
 final class QueryNotebook {
-    private struct Archive: Codable { var history: [QueryRecord] = []; var favorites: [FavoriteQuery] = [] }
+    private struct Archive: Codable { var history: [QueryRecord] = []; var favorites: [FavoriteQuery] = []; var pins: [String: [String]]? }
     private var archive = Archive()
     private let file: URL
     private(set) var error: String?
@@ -150,6 +150,15 @@ final class QueryNotebook {
         archive.history.insert(QueryRecord(id: UUID(), sql: sql, date: Date(), duration: duration, error: error), at: 0)
         if archive.history.count > 500 { archive.history.removeLast(archive.history.count - 500) }
         persist()
+    }
+    func isPinned(_ object: DatabaseObject, database: String) -> Bool {
+        archive.pins?[database]?.contains(object.kind.rawValue + "/" + object.name) == true
+    }
+    func togglePin(_ object: DatabaseObject, database: String) {
+        let id = object.kind.rawValue + "/" + object.name
+        var pins = archive.pins ?? [:], names = pins[database] ?? []
+        if names.contains(id) { names.removeAll { $0 == id } } else { names.append(id) }
+        pins[database] = names; archive.pins = pins; persist()
     }
     func add(_ favorite: FavoriteQuery) { archive.favorites.append(favorite); persist() }
     func removeFavorite(_ id: UUID) { archive.favorites.removeAll { $0.id == id }; persist() }

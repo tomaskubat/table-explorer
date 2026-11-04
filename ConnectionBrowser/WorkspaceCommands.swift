@@ -45,6 +45,9 @@ struct WorkspaceCommands: Commands {
             Button("New View…") { workspace?.schemaDraft = SchemaDraft(kind: .view) }.disabled(workspace?.connected != true)
             if workspace?.profile.driver == .mariaDB {
                 Divider()
+                Button("New Procedure…") { workspace?.schemaDraft = SchemaDraft(kind: .procedure) }.disabled(workspace?.connected != true)
+                Button("New Function…") { workspace?.schemaDraft = SchemaDraft(kind: .function) }.disabled(workspace?.connected != true)
+                Divider()
                 Button("Server Accounts…") { workspace?.serverTool = .accounts }.disabled(workspace?.connected != true)
                 Button("Process List…") { workspace?.serverTool = .processes }.disabled(workspace?.connected != true)
             }
