@@ -11,6 +11,10 @@ repo=https://github.com/tomaskubat/table-explorer
 tools="$root/packages/artifacts/sparkle/Sparkle/bin"
 feed=$(mktemp -d "$root/feed.XXXXXX")
 trap 'rm -rf "$feed"' EXIT
+mkdir "$feed/check"
+ditto -x -k "$release/$archive" "$feed/check"
+Scripts/app-signature.sh verify "$feed/check/TableExplorer.app"
+rm -r "$feed/check"
 cp "$release/$archive" "$feed/"
 args=(--maximum-deltas 0 --download-url-prefix "$repo/releases/download/$tag/" --link "$repo/releases/tag/$tag" "$feed")
 if [[ -n ${SPARKLE_PRIVATE_KEY:-} ]]; then

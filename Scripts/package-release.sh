@@ -7,6 +7,7 @@ version=${tag#v}
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 root="$PWD/.build/distribution"
 packages="$root/packages"
+Scripts/app-signature.sh identity
 public_key=$(cat Configuration/sparkle-public-key.txt)
 [[ $public_key =~ ^[A-Za-z0-9+/]{43}=$ ]]
 xcodebuild -project TableExplorer.xcodeproj -scheme TableExplorer -configuration Release \
@@ -46,18 +47,12 @@ for binary in "$app/Contents/MacOS/TableExplorer" "$frameworks"/*.dylib; do
     done < "$work/links"
 done
 cp "$packages/artifacts/sparkle/Sparkle/LICENSE" "$app/Contents/Resources/Licenses/Sparkle.txt"
-sparkle="$frameworks/Sparkle.framework"
-for helper in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle/Versions/B/Updater.app" "$sparkle/Versions/B/Autoupdate"; do
-    codesign --force --sign - --options=0 "$helper"
-done
-codesign --force --sign - --options=0 "$sparkle"
-codesign --force --sign - "$app"
-codesign --verify --deep --strict "$app"
+Scripts/app-signature.sh sign "$app"
 
 archive="TableExplorer-$version-arm64.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$work/$archive"
 mkdir "$work/unpacked"
 ditto -x -k "$work/$archive" "$work/unpacked"
-codesign --verify --deep --strict "$work/unpacked/TableExplorer.app"
+Scripts/app-signature.sh verify "$work/unpacked/TableExplorer.app"
 mkdir -p "$root/$tag"
 mv "$work/$archive" "$root/$tag/$archive"

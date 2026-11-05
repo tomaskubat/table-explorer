@@ -12,3 +12,9 @@ If macOS says it cannot verify the developer on first launch, go to **System Set
 ## Updates
 
 TableExplorer automatically checks for updates and asks before installing a new version. To check manually, choose **TableExplorer → Check for Updates…**.
+
+## Building a release
+
+Run `make release` on the signing Mac. Release builds must match the [TableExplorer code signing certificate](Configuration/table-explorer-signing.pem). Sparkle uses a separate key to verify updates. Installing the app on another Mac does not require either private key.
+
+The hosted release workflow requires the optional `TABLEEXPLORER_SIGNING_P12` (base64-encoded, encrypted PKCS#12) and `TABLEEXPLORER_SIGNING_PASSWORD` secrets in addition to the Sparkle secret. Without them, use the local release target.

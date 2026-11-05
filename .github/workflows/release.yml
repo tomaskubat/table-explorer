@@ -56,6 +56,12 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
 
+      - name: Load the app signing identity for this job
+        env:
+          TABLEEXPLORER_SIGNING_P12: ${{ secrets.TABLEEXPLORER_SIGNING_P12 }}
+          TABLEEXPLORER_SIGNING_PASSWORD: ${{ secrets.TABLEEXPLORER_SIGNING_PASSWORD }}
+        run: Scripts/ci-signing-keychain.sh
+
       - name: Check version and install build dependency
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,3 +83,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: Scripts/release.sh publish-ci "$RELEASE_TAG"
+
+      - name: Remove the temporary signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/table-explorer-signing.keychain-db"
+          if [[ -e "$keychain" ]]; then security delete-keychain "$keychain"; fi
