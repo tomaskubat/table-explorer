@@ -137,10 +137,27 @@ struct DataGrid: NSViewRepresentable {
     }
 
     @MainActor final class GridDelegate: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
-        private static let ascendingIndicator = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: "Ascending")?
-            .withSymbolConfiguration(.init(pointSize: 6, weight: .semibold))
-        private static let descendingIndicator = NSImage(systemSymbolName: "arrow.down", accessibilityDescription: "Descending")?
-            .withSymbolConfiguration(.init(pointSize: 6, weight: .semibold))
+        private static let ascendingIndicator = sortIndicator(descending: false)
+        private static let descendingIndicator = sortIndicator(descending: true)
+
+        private static func sortIndicator(descending: Bool) -> NSImage {
+            // AppKit scales indicators to a fixed slot. Padding keeps the chevron small.
+            let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { _ in
+                NSColor.black.setStroke()
+                let path = NSBezierPath()
+                path.lineWidth = 1.1; path.lineCapStyle = .round; path.lineJoinStyle = .round
+                let edge: CGFloat = descending ? 7.5 : 4.5
+                let tip: CGFloat = descending ? 4.5 : 7.5
+                path.move(to: NSPoint(x: 3, y: edge))
+                path.line(to: NSPoint(x: 6, y: tip))
+                path.line(to: NSPoint(x: 9, y: edge))
+                path.stroke()
+                return true
+            }
+            image.isTemplate = true
+            image.accessibilityDescription = descending ? "Descending" : "Ascending"
+            return image
+        }
         let workspace: Workspace
         let tab: WorkspaceTab
         var columns: [(index: Int, name: String)] = []
