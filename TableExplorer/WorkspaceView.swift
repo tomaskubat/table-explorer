@@ -184,14 +184,6 @@ struct WorkspaceView: View {
                         let active = tab.id == workspace.activeID
                         HStack(spacing: 0) {
                             Button {
-                                workspace.activeID = tab.id
-                            } label: {
-                                Text(tab.title).lineLimit(1)
-                                    .font(.system(size: 11, weight: active ? .semibold : .regular))
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("workspace-tab-" + tab.title)
-                            Button {
                                 requestClose(tab)
                             } label: {
                                 Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
@@ -199,6 +191,14 @@ struct WorkspaceView: View {
                             }.buttonStyle(.plain)
                                 .accessibilityLabel("Close " + tab.title).help("Close " + tab.title)
                                 .disabled(tab.busy)
+                            Button {
+                                workspace.activeID = tab.id
+                            } label: {
+                                Text(tab.title).lineLimit(1)
+                                    .font(.system(size: 11, weight: active ? .semibold : .regular))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("workspace-tab-" + tab.title)
                         }
                         .frame(width: max(100, area.size.width / CGFloat(workspace.tabs.count)), height: 25)
                         .background(active ? BrowserChrome.paper : BrowserChrome.bar)
