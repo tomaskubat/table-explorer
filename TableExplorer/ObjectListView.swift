@@ -3,11 +3,17 @@ import SwiftUI
 struct ObjectListView: View {
     let workspace: Workspace
     let search: String
-    @State private var selection: DatabaseObject?
+    private var selection: Binding<DatabaseObject?> {
+        Binding(get: { workspace.active?.object }, set: { object in
+            guard let object, object != workspace.active?.object else { return }
+            workspace.focusArea = .items
+            Task { await workspace.open(object) }
+        })
+    }
     private var visible: [DatabaseObject] { workspace.objects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) } }
 
     var body: some View {
-        List(selection: $selection) {
+        List(selection: selection) {
             let pinned = visible.filter { workspace.notebook.isPinned($0, database: workspace.database) }
             if !pinned.isEmpty { Section("Pinned") { ForEach(pinned) { row($0) } } }
             if workspace.profile.driver == .sqlite && workspace.objects.count <= 8 {
@@ -29,9 +35,6 @@ struct ObjectListView: View {
         .listStyle(.plain).scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, 23)
         .font(.system(size: 12))
-        .onChange(of: selection) {
-            if let selection { workspace.focusArea = .items; Task { await workspace.open(selection) } }
-        }
     }
     private func row(_ object: DatabaseObject) -> some View {
         let icons: [DatabaseObject.Kind: String] = [.table: "tablecells", .view: "eye", .procedure: "gearshape.2", .function: "function"]

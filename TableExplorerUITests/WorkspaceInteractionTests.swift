@@ -70,6 +70,47 @@ final class WorkspaceInteractionTests: XCTestCase {
         }
     }
 
+    @MainActor func testConnectionContextMenuClosesOnlyTheClickedWorkspace() throws {
+        continueAfterFailure = false
+        try inCatalog(profileNames: ["QA", "Second"]) { app, first in
+            let saved = app.windows["Saved Connections"]
+            saved.staticTexts["Second"].doubleClick()
+            let second = app.windows["Second — qa.sqlite"]
+            XCTAssertTrue(second.staticTexts["mesto"].waitForExistence(timeout: 5))
+            second.staticTexts["zeme"].click()
+            XCTAssertTrue(second.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            second.buttons["New Query"].click()
+            second.textViews["SQL Editor"].replaceText(with: "SELECT 42;")
+
+            // Closing a different workspace must use that workspace's draft guard.
+            first.click()
+            first.buttons["Connection Second"].rightClick()
+            app.menuItems["Close Connection"].click()
+            XCTAssertTrue(app.buttons["Keep Editing"].waitForExistence(timeout: 5))
+            app.buttons["Keep Editing"].click()
+            XCTAssertTrue(first.exists)
+            XCTAssertTrue(second.exists)
+            XCTAssertEqual(second.textViews["SQL Editor"].value as? String, "SELECT 42;")
+
+            first.click()
+            first.buttons["Connection Second"].rightClick()
+            app.menuItems["Close Connection"].click()
+            app.buttons["Discard and Close"].click()
+            XCTAssertTrue(second.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(first.staticTexts["grid-0-nazev"].exists)
+            XCTAssertTrue(first.buttons["Connection Second"].waitForNonExistence(timeout: 5))
+
+            saved.staticTexts["Second"].doubleClick()
+            XCTAssertTrue(second.buttons["workspace-tab-zeme"].waitForExistence(timeout: 5))
+            second.buttons["workspace-tab-zeme"].click()
+            XCTAssertTrue(second.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            first.buttons["Connection QA"].rightClick()
+            app.menuItems["Close Connection"].click()
+            XCTAssertTrue(first.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(second.staticTexts["grid-0-kod"].exists)
+        }
+    }
+
     @MainActor func testProfileRestoresOpenTabsAndCanForgetThem() throws {
         continueAfterFailure = false
         try inCatalog { app, window in

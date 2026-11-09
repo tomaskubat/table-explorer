@@ -172,6 +172,10 @@ struct SessionRail: View {
                             }.frame(maxWidth: .infinity).frame(height: 75)
                                 .background(current.id == session.id ? BrowserChrome.panel : BrowserChrome.paper)
                         }.buttonStyle(.plain).help(session.profile.name)
+                            .accessibilityLabel("Connection " + session.profile.name)
+                            .contextMenu {
+                                Button("Close Connection") { session.window?.performClose(nil) }
+                            }
                     }
                 }
             }

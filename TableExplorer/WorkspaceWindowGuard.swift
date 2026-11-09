@@ -92,7 +92,7 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
                                 guard try self.workspace.saveSQL(tab) else { return }
                             } else { tab.sql = tab.savedSQL }
                         }
-                        sender?.performClose(nil)
+                        self.closeAfterSheet(sender)
                     } catch { self.workspace.error = error.localizedDescription }
                 }
             } else {
@@ -107,11 +107,16 @@ struct WorkspaceWindowGuard: NSViewRepresentable {
                         self.workspace.activeID = tab.id; tab.showStructure = false; tab.previewShown = true
                     } else if choice == .alertThirdButtonReturn {
                         for tab in self.workspace.tabs { tab.discard() }
-                        sender?.performClose(nil)
+                        self.closeAfterSheet(sender)
                     }
                 }
             }
             return false
+        }
+
+        private func closeAfterSheet(_ sender: NSWindow?) {
+            // AppKit can ignore performClose while the sheet's completion handler is running.
+            DispatchQueue.main.async { [weak sender] in sender?.performClose(nil) }
         }
 
         func windowWillClose(_ notification: Notification) {

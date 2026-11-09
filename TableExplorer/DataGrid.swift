@@ -137,6 +137,10 @@ struct DataGrid: NSViewRepresentable {
     }
 
     @MainActor final class GridDelegate: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+        private static let ascendingIndicator = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: "Ascending")?
+            .withSymbolConfiguration(.init(pointSize: 6, weight: .semibold))
+        private static let descendingIndicator = NSImage(systemSymbolName: "arrow.down", accessibilityDescription: "Descending")?
+            .withSymbolConfiguration(.init(pointSize: 6, weight: .semibold))
         let workspace: Workspace
         let tab: WorkspaceTab
         var columns: [(index: Int, name: String)] = []
@@ -173,6 +177,12 @@ struct DataGrid: NSViewRepresentable {
                     let width = tab.gridWidths[column.name] ?? GridAppearance.width(column.name, index: column.index, rows: display.rows, fontSize: fontSize, family: style.family)
                     if width != model.width { model.width = width }
                 }
+            }
+            for column in table.tableColumns {
+                let sorted = column.title == tab.sortColumn
+                let indicator = sorted ? (tab.descending ? Self.descendingIndicator : Self.ascendingIndicator) : nil
+                if table.indicatorImage(in: column) !== indicator { table.setIndicatorImage(indicator, in: column) }
+                column.headerToolTip = sorted ? column.title + (tab.descending ? " · Descending" : " · Ascending") : nil
             }
             if switchingTab || changedColumns || fontChanged || display.rows != rows || markers != newMarkers {
                 rows = display.rows; markers = newMarkers; table.reloadData()

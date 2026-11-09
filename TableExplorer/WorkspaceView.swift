@@ -144,7 +144,7 @@ struct WorkspaceView: View {
             }
             GeometryReader { area in
                 VStack(alignment: .leading, spacing: 0) {
-                    if workspace.tabs.count > 1 {
+                    if !workspace.tabs.isEmpty {
                         tabBar
                         Divider()
                     }
@@ -202,6 +202,13 @@ struct WorkspaceView: View {
                         }
                         .frame(width: max(100, area.size.width / CGFloat(workspace.tabs.count)), height: 25)
                         .background(active ? BrowserChrome.paper : BrowserChrome.bar)
+                        .overlay(alignment: .bottom) {
+                            if tab.busy {
+                                TabLoadingBar()
+                                    .frame(height: 2).allowsHitTesting(false)
+                                    .accessibilityLabel("Loading " + tab.title)
+                            }
+                        }
                         .overlay(alignment: .trailing) { Divider().allowsHitTesting(false) }
                         .contextMenu {
                             Button("Rename Tab…") { renaming = tab }
@@ -232,6 +239,25 @@ struct WorkspaceView: View {
         if !tab.changes.isEmpty { closing = tab }
         else if tab.unsavedSQL { closingSQL = tab }
         else { workspace.closeTab(tab) }
+    }
+}
+
+private struct TabLoadingBar: View {
+    @State private var moving = false
+
+    var body: some View {
+        GeometryReader { area in
+            Color.accentColor.opacity(0.2)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Color.accentColor)
+                        .frame(width: area.size.width * 0.3)
+                        .offset(x: moving ? area.size.width : -area.size.width * 0.3)
+                }
+                .clipped()
+                .onAppear {
+                    withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) { moving = true }
+                }
+        }.accessibilityElement()
     }
 }
 
@@ -321,10 +347,6 @@ private struct WorkspaceTabView: View {
         }
     }
     @ViewBuilder private var activity: some View {
-        if tab.busy {
-            let counting = tab.object != nil && tab.totalCount == nil && !tab.result.columns.isEmpty
-            ProgressView(counting ? "Counting rows…" : "Running query…").controlSize(.small)
-        }
         if let error = tab.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError") }
     }
 
