@@ -29,33 +29,37 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
         window.staticTexts["mesto"].doubleClick()
         XCTAssertTrue(window.staticTexts["Brno"].waitForExistence(timeout: 5))
-        app.typeKey("n", modifierFlags: .command)
-        app.windows["Saved Connections"].staticTexts["startup"].doubleClick()
-        let blank = app.windows.containing(.staticText, identifier: "No Open Tabs").firstMatch
+        let chooser = app.savedConnections()
+        chooser.staticTexts["startup"].rightClick(); app.menuItems["Duplicate"].click()
+        app.textFields["Connection Name"].replaceText(with: "Second startup")
+        app.buttons["Save and Connect"].click()
+        let blank = app.windows["Second startup — startup.sqlite"]
         XCTAssertTrue(blank.buttons["New Query"].waitForExistence(timeout: 5))
         blank.buttons["New Query"].click()
-        let queryWindow = app.windows.containing(.textView, identifier: "SQL Editor").firstMatch
-        XCTAssertTrue(queryWindow.waitForExistence(timeout: 5))
+        let host = app.windows.containing(.button, identifier: "Saved Connections").firstMatch
+        XCTAssertTrue(host.textViews["SQL Editor"].waitForExistence(timeout: 5))
         func relaunch() {
             app.typeKey("q", modifierFlags: .command)
             XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
             app.launch()
         }
         relaunch()
-        let tableWindow = app.windows.containing(.staticText, identifier: "Brno").firstMatch
-        XCTAssertTrue(tableWindow.waitForExistence(timeout: 8))
-        XCTAssertTrue(queryWindow.waitForExistence(timeout: 8), "The second window must recover its own query tab.")
-        tableWindow.buttons[XCUIIdentifierCloseWindow].click()
-        XCTAssertTrue(tableWindow.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(host.textViews["SQL Editor"].waitForExistence(timeout: 8), "Restore the connection that was active at quit.")
+        XCTAssertTrue(host.buttons["Connection startup"].exists)
+        XCTAssertTrue(chooser.waitForNonExistence(timeout: 5))
+        host.buttons["Connection startup"].click()
+        XCTAssertTrue(host.staticTexts["Brno"].waitForExistence(timeout: 8))
+        host.buttons["Connection startup"].rightClick(); app.menuItems["Close Connection"].click()
+        XCTAssertTrue(host.buttons["Connection startup"].waitForNonExistence(timeout: 4))
         relaunch()
-        XCTAssertTrue(queryWindow.waitForExistence(timeout: 8))
-        XCTAssertFalse(tableWindow.exists, "Do not resurrect a manually closed window.")
+        XCTAssertTrue(host.textViews["SQL Editor"].waitForExistence(timeout: 8))
+        XCTAssertFalse(host.buttons["Connection startup"].exists, "Do not resurrect a manually closed connection.")
         app.typeKey(",", modifierFlags: .command)
         app.descendants(matching: .any).matching(identifier: "General").firstMatch.click()
         reopen.setChecked(false); app.typeKey("w", modifierFlags: .command)
         relaunch()
         XCTAssertTrue(app.windows["Saved Connections"].waitForExistence(timeout: 5))
-        XCTAssertFalse(window.waitForExistence(timeout: 2), "Disabling startup restoration leaves the connection picker open.")
+        XCTAssertFalse(host.waitForExistence(timeout: 2), "Disabling startup restoration leaves the connection picker open.")
 
     }
 

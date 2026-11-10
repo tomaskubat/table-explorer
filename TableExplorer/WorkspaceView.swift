@@ -1,5 +1,29 @@
 import SwiftUI
 
+struct WorkspaceHostView: View {
+    let registry: WorkspaceRegistry
+
+    var body: some View {
+        Group {
+            if let workspace = registry.active {
+                WorkspaceView(workspace: workspace, registry: registry).id(workspace.id)
+            } else {
+                Color.clear.frame(minWidth: 980, minHeight: 590)
+            }
+        }
+        .background(WorkspaceWindowGuard(registry: registry).frame(width: 0, height: 0))
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                guard BrowserPreferences.defaults.object(forKey: "keepAlive") as? Bool != false else { continue }
+                for workspace in registry.orderedSessions where workspace.profile.driver == .mariaDB && workspace.connected && !workspace.hasRunningTasks {
+                    do { try await workspace.session.ping() } catch { workspace.record(error) }
+                }
+            }
+        }
+    }
+}
+
 struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     let registry: WorkspaceRegistry
@@ -40,7 +64,7 @@ struct WorkspaceView: View {
             } else { panelFocus = next }
         }
         .onChange(of: panelFocus) { if let panelFocus { workspace.focusArea = panelFocus } }
-        .background(WorkspaceWindowGuard(workspace: workspace, closeActiveTab: requestCloseActiveTab).frame(width: 0, height: 0))
+        .onChange(of: workspace.closeTabRequest) { requestCloseActiveTab() }
         .confirmationDialog("Close this tab with pending changes?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), presenting: closing) { tab in
             Button("Review and Commit…") { workspace.activeID = tab.id; tab.showStructure = false; tab.closeAfterCommit = true; tab.previewShown = true }
             Button("Discard and Close", role: .destructive) { tab.discard(); workspace.closeTab(tab) }
@@ -89,14 +113,6 @@ struct WorkspaceView: View {
             }.padding(18).frame(width: 480, height: 300)
         }
         .task { await workspace.start() }
-        .task {
-            guard workspace.profile.driver == .mariaDB else { return }
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                guard BrowserPreferences.defaults.object(forKey: "keepAlive") as? Bool != false, workspace.connected, !workspace.hasRunningTasks else { continue }
-                do { try await workspace.session.ping() } catch { workspace.record(error) }
-            }
-        }
         .task(id: workspace.activeID) { await workspace.loadRestoredTab(workspace.active) }
     }
     private var layout: some View {

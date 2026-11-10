@@ -43,10 +43,11 @@ import SwiftUI
         let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
                                   notebook: registry.notebook(for: profile.id, directory: directory))
         registry.sessions[workspace.id] = workspace
+        registry.activeID = workspace.id
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1150, height: 660),
                               styleMask: [.titled, .resizable, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
-        window.contentView = NSHostingView(rootView: WorkspaceView(workspace: workspace, registry: registry))
+        window.contentView = NSHostingView(rootView: WorkspaceHostView(registry: registry))
         window.orderFront(nil)
         try await Task.sleep(for: .milliseconds(250))
         func draw() {

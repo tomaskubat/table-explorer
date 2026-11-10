@@ -44,9 +44,17 @@ extension XCUIElement {
 
 extension XCUIApplication {
     @MainActor
+    func savedConnections() -> XCUIElement {
+        let chooser = windows["Saved Connections"]
+        if !chooser.exists { buttons["Saved Connections"].firstMatch.click() }
+        XCTAssertTrue(chooser.waitForExistence(timeout: 5))
+        return chooser
+    }
+
+    @MainActor
     func newProfile(driver: String) {
         activate()
-        let createProfile = windows["Saved Connections"].buttons["New Connection"]
+        let createProfile = savedConnections().buttons["New Connection"]
         XCTAssertTrue(createProfile.waitForExistence(timeout: 5))
         createProfile.click()
         let choice = buttons["driver-" + driver]

@@ -163,7 +163,7 @@ struct SessionRail: View {
             ScrollView {
                 VStack(spacing: 1) {
                     ForEach(registry.sessions.values.sorted { ($0.profile.name, $0.id.uuidString) < ($1.profile.name, $1.id.uuidString) }) { session in
-                        Button { openWindow(value: session.id) } label: {
+                        Button { registry.activate(session.id) } label: {
                             VStack(spacing: 7) {
                                 Image(systemName: "cylinder").font(.system(size: 17))
                                     .foregroundStyle(session.connected ? session.profile.badgeColor : .secondary)
@@ -174,7 +174,7 @@ struct SessionRail: View {
                         }.buttonStyle(.plain).help(session.profile.name)
                             .accessibilityLabel("Connection " + session.profile.name)
                             .contextMenu {
-                                Button("Close Connection") { session.window?.performClose(nil) }
+                                Button("Close Connection") { registry.requestClose(session) }
                             }
                     }
                 }

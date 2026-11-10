@@ -2,10 +2,11 @@ import QuartzCore
 import SwiftUI
 
 @main struct WorkspaceFeedback {
+    @MainActor final class CloseCount { var value = 0 }
     @MainActor static func main() {
         NSApplication.shared.setActivationPolicy(.accessory)
         Task { @MainActor in
-            do { try await run(); exit(0) }
+            do { try await run(); try await sharedConnections(); exit(0) }
             catch { print(error.localizedDescription); exit(1) }
         }
         NSApplication.shared.run()
@@ -20,6 +21,8 @@ import SwiftUI
         profile.name = "Feedback"
         _ = try SQLiteHandle(path: profile.filePath, create: true)
         let session = DatabaseSession(), registry = WorkspaceRegistry()
+        let closed = CloseCount()
+        registry.onLastConnectionClosed = { closed.value += 1 }
         let database = try await session.open(profile, password: "")
         _ = try await session.query("CREATE TABLE cities(id INTEGER PRIMARY KEY, name TEXT)")
         _ = try await session.query("INSERT INTO cities VALUES (1, 'Brno'), (2, 'Praha')")
@@ -27,6 +30,7 @@ import SwiftUI
         let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
                                   notebook: registry.notebook(for: profile.id, directory: directory))
         registry.sessions[workspace.id] = workspace
+        registry.activeID = workspace.id
         await workspace.start()
         await workspace.open(DatabaseObject(name: "cities", kind: .table))
         let city = workspace.active!
@@ -36,7 +40,7 @@ import SwiftUI
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1150, height: 660),
                               styleMask: [.titled, .resizable, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: WorkspaceView(workspace: workspace, registry: registry))
+        window.contentView = NSHostingView(rootView: WorkspaceHostView(registry: registry))
         window.orderFront(nil)
         defer { window.orderOut(nil) }
         func draw() async throws {
@@ -107,7 +111,8 @@ import SwiftUI
         let restored = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
                                  notebook: workspace.notebook)
         await restored.start()
-        window.contentView = NSHostingView(rootView: WorkspaceView(workspace: restored, registry: registry))
+        registry.sessions[workspace.id] = nil
+        registry.add(restored)
         try await draw()
         let restoredNavigator = tables(in: window.contentView!).first { !($0 is DataGrid.GridTable) }!
         check(restoredNavigator.selectedRow == 0 && restored.active?.object?.name == "cities",
@@ -127,9 +132,89 @@ import SwiftUI
             if let sheet = window.attachedSheet {
                 window.endSheet(sheet, returnCode: .alertThirdButtonReturn); try await draw()
                 check(!window.isVisible, "discarding SQL closes the connection on the first attempt")
+                check(closed.value == 1, "closing the last connection requests application termination exactly once")
             } else { check(false, "closing a connection still guards unsaved SQL after canceling") }
         } else { check(false, "closing a connection protects unsaved SQL") }
         await session.close()
         if failures > 0 { throw BrowserError("\(failures) workspace feedback checks failed") }
+    }
+
+    @MainActor static func sharedConnections() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let registry = WorkspaceRegistry()
+        let closed = CloseCount()
+        registry.onLastConnectionClosed = { closed.value += 1 }
+        func makeWorkspace(_ name: String) async throws -> Workspace {
+            var profile = ConnectionProfile()
+            profile.name = name; profile.driver = .sqlite
+            profile.filePath = directory.appending(path: name + ".sqlite").path
+            _ = try SQLiteHandle(path: profile.filePath, create: true)
+            let session = DatabaseSession()
+            let database = try await session.open(profile, password: "")
+            let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+                                      notebook: registry.notebook(for: profile.id, directory: directory))
+            await workspace.start()
+            return workspace
+        }
+        func check(_ condition: Bool, _ label: String) throws {
+            guard condition else { throw BrowserError("FAIL: " + label) }
+            print("PASS: " + label)
+        }
+        let first = try await makeWorkspace("First"), second = try await makeWorkspace("Second")
+        registry.add(first)
+        first.newQuery(); first.active!.sql = "SELECT 'first draft';"
+        let draftID = first.activeID
+        let window = NSWindow(contentRect: NSRect(x: 90, y: 90, width: 1150, height: 660),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: WorkspaceHostView(registry: registry))
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        func draw() async throws {
+            try await Task.sleep(for: .milliseconds(100))
+            window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        }
+        try await draw()
+        let number = window.windowNumber
+        registry.add(second); try await draw()
+        try check(registry.active === second && first.window === window && second.window === window && window.windowNumber == number,
+                  "opening a second connection reuses the same window")
+        registry.activate(first.id); try await draw()
+        try check(first.activeID == draftID && first.active?.sql == "SELECT 'first draft';" && first.active?.unsavedSQL == true,
+                  "switching connections preserves SQL tabs and unsaved text")
+        registry.cycle(forward: true); try await draw()
+        try check(registry.active === second, "workspace navigation cycles connections in the shared window")
+        second.newQuery(); second.active!.busy = true
+        window.performClose(nil); try await draw()
+        let running = window.attachedSheet
+        try check(running != nil && registry.sessions.count == 2, "closing the shared window guards a running background connection")
+        window.endSheet(running!, returnCode: .alertFirstButtonReturn); try await draw()
+        registry.requestClose(first); try await draw()
+        let prompt = window.attachedSheet
+        try check(prompt != nil && registry.active === first, "closing an inactive connection reviews that connection's unsaved SQL")
+        window.endSheet(prompt!, returnCode: .alertFirstButtonReturn); try await draw()
+        try check(registry.sessions.count == 2 && first.active?.unsavedSQL == true,
+                  "canceling a connection close preserves both sessions")
+        registry.requestClose(first); try await draw()
+        window.endSheet(window.attachedSheet!, returnCode: .alertThirdButtonReturn); try await draw()
+        try check(registry.sessions.count == 1 && registry.active === second && second.active?.busy == true && window.isVisible,
+                  "closing one connection leaves the other connection and its running query open")
+        try check(closed.value == 0, "closing one of several connections does not request application termination")
+        second.active!.busy = false
+        let third = try await makeWorkspace("Third")
+        third.newQuery(); third.active!.sql = "SELECT 'third draft';"
+        registry.add(third); registry.activate(second.id); try await draw()
+        BrowserPreferences.defaults.set(true, forKey: "reopenWorkspaces")
+        NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: NSApp)
+        let startup = StartupWindowFile.consume(in: directory)
+        try check(startup.count == 2 && startup.last?.profile == second.profile.id && startup.contains { $0.profile == third.profile.id },
+                  "startup restoration remembers every shared-window connection and the active connection")
+        window.performClose(nil); try await draw()
+        try check(window.attachedSheet != nil && registry.active === third,
+                  "closing the shared window also guards unsaved SQL in an inactive connection")
+        window.endSheet(window.attachedSheet!, returnCode: .alertThirdButtonReturn); try await draw()
+        try check(registry.sessions.isEmpty && !window.isVisible, "closing the shared window releases all approved connections")
     }
 }

@@ -27,6 +27,7 @@ final class WorkspaceInteractionTests: XCTestCase {
         let city = window.staticTexts["mesto"]
         XCTAssertTrue(city.waitForExistence(timeout: 5)); city.click()
         XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.windows["Saved Connections"].waitForNonExistence(timeout: 4))
         try run(app, window)
     }
 
@@ -72,42 +73,49 @@ final class WorkspaceInteractionTests: XCTestCase {
 
     @MainActor func testConnectionContextMenuClosesOnlyTheClickedWorkspace() throws {
         continueAfterFailure = false
-        try inCatalog(profileNames: ["QA", "Second"]) { app, first in
-            let saved = app.windows["Saved Connections"]
+        try inCatalog(profileNames: ["QA", "Second"]) { app, _ in
+            let host = app.windows.containing(.button, identifier: "Saved Connections").firstMatch
+            let frame = host.frame, identity = host.identifier
+            let saved = app.savedConnections()
             saved.staticTexts["Second"].doubleClick()
-            let second = app.windows["Second — qa.sqlite"]
-            XCTAssertTrue(second.staticTexts["mesto"].waitForExistence(timeout: 5))
-            second.staticTexts["zeme"].click()
-            XCTAssertTrue(second.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
-            second.buttons["New Query"].click()
-            second.textViews["SQL Editor"].replaceText(with: "SELECT 42;")
+            XCTAssertTrue(app.windows["Second — qa.sqlite"].waitForExistence(timeout: 5))
+            XCTAssertTrue(saved.waitForNonExistence(timeout: 4))
+            XCTAssertEqual(app.windows.matching(identifier: identity).count, 1)
+            XCTAssertEqual(host.frame, frame)
+            host.staticTexts["zeme"].click()
+            XCTAssertTrue(host.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            host.buttons["New Query"].click()
+            host.textViews["SQL Editor"].replaceText(with: "SELECT 42;")
 
             // Closing a different workspace must use that workspace's draft guard.
-            first.click()
-            first.buttons["Connection Second"].rightClick()
+            host.buttons["Connection QA"].click()
+            XCTAssertTrue(host.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
+            host.buttons["Connection Second"].rightClick()
             app.menuItems["Close Connection"].click()
             XCTAssertTrue(app.buttons["Keep Editing"].waitForExistence(timeout: 5))
             app.buttons["Keep Editing"].click()
-            XCTAssertTrue(first.exists)
-            XCTAssertTrue(second.exists)
-            XCTAssertEqual(second.textViews["SQL Editor"].value as? String, "SELECT 42;")
+            XCTAssertTrue(host.buttons["Connection QA"].exists)
+            XCTAssertTrue(host.buttons["Connection Second"].exists)
+            XCTAssertEqual(host.textViews["SQL Editor"].value as? String, "SELECT 42;")
 
-            first.click()
-            first.buttons["Connection Second"].rightClick()
+            host.buttons["Connection QA"].click()
+            host.buttons["Connection Second"].rightClick()
             app.menuItems["Close Connection"].click()
             app.buttons["Discard and Close"].click()
-            XCTAssertTrue(second.waitForNonExistence(timeout: 5))
-            XCTAssertTrue(first.staticTexts["grid-0-nazev"].exists)
-            XCTAssertTrue(first.buttons["Connection Second"].waitForNonExistence(timeout: 5))
+            XCTAssertTrue(host.buttons["Connection Second"].waitForNonExistence(timeout: 5))
+            XCTAssertTrue(host.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
 
-            saved.staticTexts["Second"].doubleClick()
-            XCTAssertTrue(second.buttons["workspace-tab-zeme"].waitForExistence(timeout: 5))
-            second.buttons["workspace-tab-zeme"].click()
-            XCTAssertTrue(second.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
-            first.buttons["Connection QA"].rightClick()
+            app.savedConnections().staticTexts["Second"].doubleClick()
+            XCTAssertTrue(saved.waitForNonExistence(timeout: 4))
+            XCTAssertTrue(host.buttons["workspace-tab-zeme"].waitForExistence(timeout: 5))
+            host.buttons["workspace-tab-zeme"].click()
+            XCTAssertTrue(host.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
+            host.buttons["Connection QA"].rightClick()
             app.menuItems["Close Connection"].click()
-            XCTAssertTrue(first.waitForNonExistence(timeout: 5))
-            XCTAssertTrue(second.staticTexts["grid-0-kod"].exists)
+            XCTAssertTrue(host.buttons["Connection QA"].waitForNonExistence(timeout: 5))
+            XCTAssertTrue(host.staticTexts["grid-0-kod"].exists)
+            host.buttons[XCUIIdentifierCloseWindow].click()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
         }
     }
 
@@ -117,14 +125,14 @@ final class WorkspaceInteractionTests: XCTestCase {
             let profile = app.windows["Saved Connections"].staticTexts["QA"]
             func closeWindow() {
                 window.buttons[XCUIIdentifierCloseWindow].click()
-                XCTAssertTrue(window.waitForNonExistence(timeout: 5))
+                XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
             }
             window.staticTexts["zeme"].click()
             XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 5))
             window.radioButtons["Structure"].click()
             window.buttons["Row Detail"].click()
             closeWindow()
-            app.terminate(); app.launch()
+            app.launch()
             profile.doubleClick()
             XCTAssertTrue(window.buttons["workspace-tab-mesto"].waitForExistence(timeout: 5))
             XCTAssertTrue(window.buttons["workspace-tab-zeme"].exists)
@@ -133,6 +141,7 @@ final class WorkspaceInteractionTests: XCTestCase {
             window.buttons["workspace-tab-mesto"].click()
             XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
             closeWindow()
+            app.launch()
             profile.rightClick(); app.menuItems["Edit Connection…"].click()
             let remember = app.checkBoxes["Remember open tabs and workspace state"]
             XCTAssertTrue(remember.waitForExistence(timeout: 5))
@@ -143,7 +152,7 @@ final class WorkspaceInteractionTests: XCTestCase {
             XCTAssertTrue(window.textFields["Search for field"].exists)
             window.staticTexts["zeme"].click()
             XCTAssertTrue(window.staticTexts["grid-0-kod"].waitForExistence(timeout: 4))
-            closeWindow(); profile.doubleClick()
+            closeWindow(); app.launch(); profile.doubleClick()
             XCTAssertTrue(window.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
         }
     }
@@ -165,7 +174,8 @@ final class WorkspaceInteractionTests: XCTestCase {
     @MainActor func testWorkspaceFrameIsSharedAcrossConnectionsAndRelaunch() throws {
         continueAfterFailure = false
         try inCatalog(profileNames: ["QA", "Second"]) { app, window in
-            let chooser = app.windows["Saved Connections"], chooserFrame = chooser.frame
+            let chooser = app.savedConnections(), chooserFrame = chooser.frame
+            window.click()
             let original = window.frame
             let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
                 .withOffset(CGVector(dx: -3, dy: -3))
@@ -184,7 +194,9 @@ final class WorkspaceInteractionTests: XCTestCase {
                 XCTAssertEqual(actual.minY, target.minY, accuracy: 2)
             }
             window.buttons[XCUIIdentifierCloseWindow].click()
-            XCTAssertTrue(window.waitForNonExistence(timeout: 4))
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
+            app.launch()
+            XCTAssertTrue(chooser.waitForExistence(timeout: 5))
             assertFrame(chooser.frame, equals: chooserFrame)
             chooser.staticTexts["QA"].doubleClick()
             XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))

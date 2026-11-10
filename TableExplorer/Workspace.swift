@@ -209,6 +209,7 @@ final class Workspace: Identifiable {
     var showItems = true { didSet { panelChanged(.items, visible: showItems) } }
     enum FocusArea: Hashable { case grid, sql, filter, items, detail, console }
     var paneRequest = UUID()
+    var closeTabRequest = UUID()
     var paneDirection = 1
     var focusArea: FocusArea?
     var showDetails = true { didSet { panelChanged(.detail, visible: showDetails) } }
@@ -629,11 +630,62 @@ final class Workspace: Identifiable {
 @MainActor @Observable
 final class WorkspaceRegistry: NSObject {
     var sessions: [UUID: Workspace] = [:]
+    var activeID: UUID?
+    var active: Workspace? { activeID.flatMap { sessions[$0] } }
+    var orderedSessions: [Workspace] {
+        sessions.values.sorted { ($0.profile.name, $0.id.uuidString) < ($1.profile.name, $1.id.uuidString) }
+    }
+    @ObservationIgnored weak var window: NSWindow?
+    @ObservationIgnored var closeHandler: ((Workspace) -> Void)?
+    @ObservationIgnored var onLastConnectionClosed: (@MainActor @Sendable () -> Void)?
+    private(set) var isTerminating = false
     private var notebooks: [[URL]: QueryNotebook] = [:]
     override init() {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(rememberOpenWindows),
                                                name: NSApplication.willTerminateNotification, object: nil)
+    }
+
+    func add(_ workspace: Workspace) {
+        sessions[workspace.id] = workspace
+        workspace.window = window
+        activate(workspace.id)
+        Task { await workspace.start() }
+    }
+
+    func activate(_ id: UUID) {
+        guard sessions[id] != nil else { return }
+        activeID = id
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func requestClose(_ workspace: Workspace) { closeHandler?(workspace) }
+
+    func remove(_ workspace: Workspace) {
+        guard sessions[workspace.id] === workspace else { return }
+        workspace.rememberOnClose()
+        workspace.releaseRecovery()
+        workspace.window = nil
+        let index = orderedSessions.firstIndex { $0.id == workspace.id } ?? 0
+        sessions[workspace.id] = nil
+        if activeID == workspace.id {
+            let remaining = orderedSessions
+            activeID = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)].id
+        }
+        Task { await workspace.session.close() }
+        if sessions.isEmpty, !isTerminating {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.sessions.isEmpty, !self.isTerminating else { return }
+                self.onLastConnectionClosed?()
+            }
+        }
+    }
+
+    func cycle(forward: Bool) {
+        let sessions = orderedSessions
+        guard !sessions.isEmpty, let index = sessions.firstIndex(where: { $0.id == activeID }) else { return }
+        activate(sessions[(index + (forward ? 1 : -1) + sessions.count) % sessions.count].id)
     }
     private var didRestore = false
     func takeStartupWindows(in directory: URL) -> [StartupWindow] {
@@ -647,13 +699,12 @@ final class WorkspaceRegistry: NSObject {
     }
 
     @objc private func rememberOpenWindows() {
+        isTerminating = true
         var byLibrary: [URL: [StartupWindow]] = [:]
         let reopen = BrowserPreferences.defaults.bool(forKey: "reopenWorkspaces")
-        // Back to front: the frontmost window remains the default on manual reopen.
-        let ordered = NSApp.orderedWindows
-        let other = sessions.values.compactMap(\.window).filter { window in !ordered.contains(window) }
-        for window in other + Array(ordered.reversed()) {
-            guard let workspace = sessions.values.first(where: { $0.window === window }) else { continue }
+        // Save every connection in the shared window, restoring the active one last.
+        let ordered = orderedSessions.filter { $0.id != activeID } + (active.map { [$0] } ?? [])
+        for workspace in ordered {
             let state = workspace.rememberOnClose()
             if reopen && workspace.connected {
                 byLibrary[workspace.notebook.libraryDirectory.standardizedFileURL, default: []].append(

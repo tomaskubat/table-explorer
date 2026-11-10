@@ -14,6 +14,7 @@ struct TableExplorerApp: App {
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
         let registry = WorkspaceRegistry()
+        registry.onLastConnectionClosed = { NSApp.terminate(nil) }
         _workspaces = State(initialValue: registry)
         _updates = StateObject(wrappedValue: ApplicationUpdates(workspaces: registry))
     }
@@ -38,23 +39,15 @@ struct TableExplorerApp: App {
             }
         }
 
-        WindowGroup("Workspace", for: UUID.self) { $id in
-            if let id, let workspace = workspaces.sessions[id] {
-                WorkspaceView(workspace: workspace, registry: workspaces).modifier(BrowserAppearance())
-                    .onDisappear {
-                        workspace.releaseRecovery()
-                        workspaces.sessions[id] = nil
-                        Task { await workspace.session.close() }
-                    }
-            } else {
-                ContentUnavailableView("Session Closed", systemImage: "bolt.slash", description: Text("Open a saved connection to reconnect."))
-            }
+        Window("Workspace", id: "workspace") {
+            WorkspaceHostView(registry: workspaces).modifier(BrowserAppearance())
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 760)
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
-        .commands { WorkspaceCommands() }
+        .defaultLaunchBehavior(.suppressed)
+        .commands { WorkspaceCommands(registry: workspaces) }
 
         DocumentGroup(newDocument: SQLFileDocument()) { document in
             SQLFileView(file: document.$document, registry: workspaces)
@@ -116,7 +109,8 @@ private struct WorkspacesView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
                 ForEach(registry.sessions.values.sorted { $0.profile.name < $1.profile.name }) { workspace in
                     Button {
-                        openWindow(value: workspace.id); dismissWindow(id: "workspaces")
+                        registry.activate(workspace.id)
+                        openWindow(id: "workspace"); dismissWindow(id: "workspaces")
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Group {
@@ -144,7 +138,7 @@ private struct WorkspacesView: View {
         .onAppear {
             previews.removeAll()
             for workspace in registry.sessions.values {
-                guard let view = workspace.window?.contentView, !view.bounds.isEmpty,
+                guard workspace.id == registry.activeID, let view = workspace.window?.contentView, !view.bounds.isEmpty,
                       let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 let image = NSImage(size: view.bounds.size)

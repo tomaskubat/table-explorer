@@ -43,7 +43,8 @@ struct SQLFileView: View {
                 }
                 Button("Open in Workspace") {
                     if let target, let workspace = registry.sessions[target] {
-                        workspace.newQuery(text: file.text); openWindow(value: target)
+                        workspace.newQuery(text: file.text)
+                        registry.activate(target); openWindow(id: "workspace")
                     }
                 }.disabled(target.flatMap { registry.sessions[$0] }?.connected != true)
                 Button("Saved Connections") { openWindow(id: "connections") }

@@ -20,6 +20,7 @@ extension FocusedValues {
 }
 
 struct WorkspaceCommands: Commands {
+    let registry: WorkspaceRegistry
     @AppStorage(Keymap.key, store: BrowserPreferences.defaults) private var bindings = Data()
     private var map: Keymap { Keymap(bindings) }
     @FocusedValue(\.connectionWorkspace) private var workspace
@@ -142,9 +143,7 @@ struct WorkspaceCommands: Commands {
             w.activeID = w.tabs[(i + (action == .nextTab ? 1 : -1) + w.tabs.count) % w.tabs.count].id
         case .data, .structure: activeTab?.showStructure = action == .structure
         case .nextWorkspace, .previousWorkspace:
-            let windows = NSApp.windows.filter { $0.isVisible && $0.contentView != nil && $0.delegate is WorkspaceWindowGuard.Coordinator }.sorted { $0.windowNumber < $1.windowNumber }
-            guard let i = windows.firstIndex(where: { $0 === w.window }) else { return }
-            windows[(i + (action == .nextWorkspace ? 1 : -1) + windows.count) % windows.count].makeKeyAndOrderFront(nil)
+            registry.cycle(forward: action == .nextWorkspace)
         case .nextPane, .previousPane: w.paneDirection = action == .nextPane ? 1 : -1; w.paneRequest = UUID()
         default: break
         }
