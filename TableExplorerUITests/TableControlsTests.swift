@@ -3,6 +3,44 @@ import SQLite3
 
 final class TableControlsTests: XCTestCase {
     @MainActor
+    func testRefreshShortcutAndButtonReloadExternalChanges() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(), directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "refresh.sqlite")
+        try SQLiteFixture.create(at: file)
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path; app.launch()
+        app.buttons["New Connection"].click(); app.buttons["Import from URL"].click()
+        app.textFields["Connection URL"].replaceText(with: file.absoluteString)
+        app.buttons["Import"].click(); app.buttons["Save and Connect"].click()
+        let window = app.windows["refresh — refresh.sqlite"]
+        XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
+        window.staticTexts["mesto"].click()
+        let cell = window.staticTexts["grid-0-nazev"]
+        XCTAssertTrue(cell.waitForExistence(timeout: 5))
+        var writer: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(file.path, &writer, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(writer) }
+        func waitForName(_ name: String) {
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", name), object: cell)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed)
+        }
+        XCTAssertEqual(sqlite3_exec(writer, "UPDATE mesto SET nazev='Shortcut update' WHERE id=1", nil, nil, nil), SQLITE_OK)
+        window.textFields["Search for field"].click()
+        app.typeKey("r", modifierFlags: .command)
+        waitForName("Shortcut update")
+        XCTAssertEqual(sqlite3_exec(writer, "UPDATE mesto SET nazev='Button update' WHERE id=1", nil, nil, nil), SQLITE_OK)
+        window.buttons["Refresh Data"].click()
+        waitForName("Button update")
+        cell.doubleClick(); app.typeText("Local draft"); app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(window.buttons["Preview Changes"].waitForExistence(timeout: 5))
+        XCTAssertFalse(window.buttons["Refresh Data"].isEnabled)
+        app.typeKey("r", modifierFlags: .command)
+        XCTAssertTrue((cell.value as? String)?.contains("Local draft") == true)
+    }
+
+    @MainActor
     func testApplyOneFilterAndCommitOnTabClose() throws {
         continueAfterFailure = false
         let app = XCUIApplication(), dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

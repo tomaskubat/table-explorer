@@ -394,6 +394,12 @@ private struct WorkspaceTabView: View {
 
     @ViewBuilder private var pageControls: some View {
         if hasDataMode && !tab.showStructure { TableControls(workspace: workspace, tab: tab) }
+        if hasDataMode && !tab.showStructure {
+            Button("Refresh Data", systemImage: "arrow.clockwise") { Task { await workspace.refresh(tab) } }
+                .labelStyle(.iconOnly)
+                .help(tab.changes.isEmpty ? "Refresh data (\(Keymap.saved[.refresh].display))" : "Commit or discard row changes before refreshing")
+                .disabled(!workspace.canRefresh(tab))
+        }
         if tab.object?.kind == .table {
             Button("Import CSV", systemImage: "square.and.arrow.down") { tab.importShown = true }
                 .labelStyle(.iconOnly).help("Import CSV")

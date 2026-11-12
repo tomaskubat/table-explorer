@@ -6,7 +6,7 @@ import SwiftUI
     @MainActor static func main() {
         NSApplication.shared.setActivationPolicy(.accessory)
         Task { @MainActor in
-            do { try await run(); try await sharedConnections(); exit(0) }
+            do { try await run(); try await refreshData(); try await sharedConnections(); exit(0) }
             catch { print(error.localizedDescription); exit(1) }
         }
         NSApplication.shared.run()
@@ -137,6 +137,72 @@ import SwiftUI
         } else { check(false, "closing a connection protects unsaved SQL") }
         await session.close()
         if failures > 0 { throw BrowserError("\(failures) workspace feedback checks failed") }
+    }
+
+    @MainActor static func refreshData() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var profile = ConnectionProfile()
+        profile.name = "Refresh"; profile.driver = .sqlite; profile.filePath = directory.appending(path: "refresh.sqlite").path
+        _ = try SQLiteHandle(path: profile.filePath, create: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: "")
+        _ = try await session.query("CREATE TABLE cities(id INTEGER PRIMARY KEY, name TEXT)")
+        _ = try await session.query("INSERT INTO cities VALUES(1,'Brno'),(2,'Praha'),(3,'Ostrava')")
+        _ = try await session.query("CREATE VIEW city_names AS SELECT name FROM cities")
+        let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+                                  notebook: QueryNotebook(directory: directory, profile: profile.id))
+        await workspace.start()
+        await workspace.open(DatabaseObject(name: "cities", kind: .table))
+        let tab = workspace.active!
+        tab.appliedFilters = [ColumnFilter(column: "id", operation: .greater, value: "0")]
+        tab.filters = [ColumnFilter(column: "id", operation: .equals, value: "99")]
+        tab.sortColumn = "id"; tab.descending = true; tab.limit = 1; tab.offset = 1
+        tab.hiddenColumns = ["id"]
+        await workspace.load(tab)
+        tab.selected = 0; tab.focusedColumn = "name"
+        func check(_ condition: Bool, _ label: String) throws {
+            guard condition else { throw BrowserError("FAIL: " + label) }
+            print("PASS: " + label)
+        }
+        let map = Keymap(Data())
+        try check(map[.refresh] == KeyBinding("r") && map.issue(map[.refresh], for: .refresh) == nil,
+                  "refresh defaults to Command-R without a shortcut conflict")
+        _ = try await session.query("UPDATE cities SET name='External update' WHERE id=2")
+        await workspace.refresh(tab)
+        try check(tab.result.rows == [[.integer("2"), .text("External update")]], "refresh fetches externally changed rows")
+        try check(tab.offset == 1 && tab.limit == 1 && tab.sortColumn == "id" && tab.descending && tab.totalCount == 3,
+                  "refresh preserves the current page, page size, and sorting")
+        try check(tab.appliedFilters.first?.value == "0" && tab.filters.first?.value == "99" && tab.hiddenColumns == ["id"],
+                  "refresh preserves applied filters, unapplied filter edits, and hidden columns")
+        try check(tab.selectedRows == [0] && tab.focusedRow == 0 && tab.focusedColumn == "name",
+                  "refresh preserves the selected row and column")
+        let request = tab.requestID
+        tab.busy = true; await workspace.refresh(tab); tab.busy = false
+        try check(tab.requestID == request, "refresh does not start another request while data is loading")
+        var draft = tab.editRow(at: 0)!
+        draft.changes["name"] = .text("Local draft"); tab.stage(draft)
+        await workspace.refresh(tab)
+        try check(!workspace.canRefreshActiveTable && tab.requestID == request && tab.displayed.rows.first?.last == .text("Local draft"),
+                  "refresh protects uncommitted row edits")
+        tab.discard(); tab.showStructure = true; await workspace.refresh(tab)
+        try check(!workspace.canRefreshActiveTable && tab.requestID == request, "data refresh is unavailable in structure mode")
+        tab.showStructure = false; workspace.connected = false; await workspace.refresh(tab)
+        try check(!workspace.canRefreshActiveTable && tab.requestID == request, "data refresh is unavailable while disconnected")
+        workspace.connected = true
+        workspace.newQuery(text: "UPDATE cities SET name='Never executed'")
+        await workspace.refresh(workspace.active!)
+        let result = try await session.query("SELECT name FROM cities WHERE id=2")
+        try check(!workspace.canRefreshActiveTable && result.rows == [[.text("External update")]],
+                  "refresh does not execute SQL editor text")
+        await workspace.open(DatabaseObject(name: "city_names", kind: .view))
+        let view = workspace.active!
+        _ = try await session.query("UPDATE cities SET name='View update' WHERE id=2")
+        await workspace.refresh(view)
+        try check(workspace.canRefreshActiveTable && view.result.rows.contains([.text("View update")]),
+                  "refresh also reloads database views")
+        await session.close()
     }
 
     @MainActor static func sharedConnections() async throws {

@@ -230,6 +230,7 @@ final class Workspace: Identifiable {
     var unsavedQueries: [WorkspaceTab] { tabs.filter(\.unsavedSQL) }
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
     var hasRunningTasks: Bool { maintenanceBusy || transferBusy || tabs.contains { $0.busy } }
+    var canRefreshActiveTable: Bool { active.map(canRefresh) ?? false }
 
     init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook, shouldRemember: (() -> Bool)? = nil) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
@@ -518,6 +519,16 @@ final class Workspace: Identifiable {
     }
     func applyFilters(_ tab: WorkspaceTab) async {
         tab.appliedFilters = tab.filters; tab.offset = 0
+        await load(tab)
+    }
+    func canRefresh(_ tab: WorkspaceTab) -> Bool {
+        connected && !maintenanceBusy && !transferBusy && !tab.busy && !tab.showStructure && tab.changes.isEmpty
+            && (tab.object?.kind == .table || tab.object?.kind == .view)
+    }
+    func refresh(_ tab: WorkspaceTab) async {
+        // End an inline edit before checking drafts so refresh cannot hide a pending change.
+        if let grid = tab.grid, grid.handler?.editing != nil { grid.window?.makeFirstResponder(grid) }
+        guard canRefresh(tab) else { return }
         await load(tab)
     }
     func load(_ tab: WorkspaceTab) async {

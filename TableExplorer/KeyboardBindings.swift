@@ -6,7 +6,7 @@ enum BrowserAction: String, CaseIterable {
     case nextTab = "Select Next Tab", previousTab = "Select Previous Tab", nextWorkspace = "Select Next Workspace", previousWorkspace = "Select Previous Workspace"
     case nextPane = "Select Next Pane", previousPane = "Select Previous Pane", data = "Show Table Data", structure = "Show Table Structure"
     case add = "Add Row", duplicate = "Duplicate Rows", detail = "Row Detail", filters = "Show Filters", columns = "Choose Columns"
-    case back = "Previous Page", forward = "Next Page", preview = "Preview Changes"
+    case back = "Previous Page", forward = "Next Page", preview = "Preview Changes", refresh = "Refresh Data"
     case run = "Run Current / Apply Filters", comment = "Toggle Line Comment", block = "Toggle Block Comment", complete = "Complete SQL"
     case bigger = "Increase Editor Font Size", smaller = "Decrease Editor Font Size"
 
@@ -21,6 +21,7 @@ enum BrowserAction: String, CaseIterable {
         case .add: .init("i"); case .duplicate: .init("d"); case .detail: .init(" ", []); case .filters: .init("f")
         case .columns: .init("f", [.command,.option]); case .back: .init(String(KeyEquivalent.leftArrow.character))
         case .forward: .init(String(KeyEquivalent.rightArrow.character)); case .preview: .init("p", [.command,.shift])
+        case .refresh: .init("r")
         case .run: .init("\r"); case .comment: .init("/"); case .block: .init("/", [.command,.option])
         case .complete: .init("\u{1b}", .option); case .bigger: .init("="); case .smaller: .init("-")
         }

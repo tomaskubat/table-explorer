@@ -81,6 +81,10 @@ struct WorkspaceCommands: Commands {
             }.keyboardShortcut(map[.comment].shortcut).disabled(!sqlFocused)
         }
         CommandGroup(after: .sidebar) {
+            Button("Refresh Data") {
+                if let workspace, let activeTab { Task { await workspace.refresh(activeTab) } }
+            }.keyboardShortcut(map[.refresh].shortcut)
+                .disabled(workspace?.canRefreshActiveTable != true)
             Button("Show Filters") { activeTab?.toggleFilters() }.keyboardShortcut(map[.filters].shortcut).disabled(!gridFocused)
             Button(workspace?.focusArea == .filter ? "Apply All Conditions" : "Run Current Statement") {
                 if let workspace, let activeTab {
