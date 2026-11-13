@@ -6,10 +6,78 @@ import SwiftUI
     @MainActor static func main() {
         NSApplication.shared.setActivationPolicy(.accessory)
         Task { @MainActor in
-            do { try await run(); try await refreshData(); try await sharedConnections(); exit(0) }
+            do {
+                try await removeFilters()
+                if !CommandLine.arguments.contains("--filters-only") {
+                    try await run(); try await refreshData(); try await sharedConnections()
+                }
+                exit(0)
+            }
             catch { print(error.localizedDescription); exit(1) }
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func removeFilters() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var profile = ConnectionProfile()
+        profile.name = "Filters"; profile.driver = .sqlite; profile.filePath = directory.appending(path: "filters.sqlite").path
+        _ = try SQLiteHandle(path: profile.filePath, create: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: "")
+        _ = try await session.query("CREATE TABLE cities(id INTEGER PRIMARY KEY, name TEXT)")
+        _ = try await session.query("INSERT INTO cities VALUES (1,'Brno'),(2,'Praha')")
+        let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+                                  notebook: QueryNotebook(directory: directory, profile: profile.id))
+        await workspace.start()
+        await workspace.open(DatabaseObject(name: "cities", kind: .table))
+        let tab = workspace.active!
+        tab.filterEditorVisible = true
+        tab.filters = [ColumnFilter(column: "name", operation: .equals, value: "Brno")]
+        await workspace.applyFilters(tab)
+        func check(_ condition: Bool, _ label: String) throws {
+            guard condition else { throw BrowserError("FAIL: " + label) }
+            print("PASS: " + label)
+        }
+        try check(tab.result.rows.count == 1, "filter removal starts with a filtered table")
+        let controls = FilterConditions(workspace: workspace, tab: tab)
+        let filters = Binding(get: { tab.filters }, set: { tab.filters = $0 })
+        func remove(_ index: Int) async throws {
+            let request = tab.requestID
+            controls.removeCondition(filters[index])
+            for _ in 0..<50 {
+                if tab.requestID != request && !tab.busy { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            throw BrowserError("FAIL: removing an applied filter did not finish reloading data")
+        }
+        try await remove(0)
+        try check(tab.filters.isEmpty, "removing the last filter leaves the filter editor alive")
+        try check(tab.appliedFilters.isEmpty && tab.result.rows.count == 2, "removing an applied filter restores all rows")
+
+        tab.filters = [ColumnFilter(column: "name", operation: .equals, value: "Brno"),
+                       ColumnFilter(column: "id", operation: .greater, value: "0")]
+        await workspace.applyFilters(tab)
+        let remainingID = tab.filters[1].id
+        try await remove(0)
+        try check(tab.filters.map(\.id) == [remainingID] && tab.appliedFilters.map(\.id) == [remainingID] && tab.result.rows.count == 2,
+                  "removing the first applied filter preserves remaining conditions")
+        tab.filters.append(ColumnFilter(column: "name", operation: .equals, value: "Praha"))
+        let request = tab.requestID
+        controls.removeCondition(filters[1])
+        try await Task.sleep(for: .milliseconds(20))
+        try check(tab.filters.map(\.id) == [remainingID] && tab.appliedFilters.map(\.id) == [remainingID] && tab.requestID == request,
+                  "removing a draft filter leaves the applied query unchanged")
+        filters[0].value.wrappedValue = "1"
+        await workspace.applyFilters(tab)
+        try check(tab.result.rows == [[.integer("2"), .text("Praha")]], "remaining filter bindings stay editable after removal")
+        tab.limit = 1; tab.offset = 1
+        try await remove(0)
+        try check(tab.offset == 0 && tab.totalCount == 2 && tab.result.rows.count == 1,
+                  "removing the last applied filter resets pagination and restores the row count")
+        await session.close()
     }
 
     @MainActor static func run() async throws {

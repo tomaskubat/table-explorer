@@ -55,7 +55,7 @@ struct FilterConditions: View {
                             else { tab.appliedFilters.append(filter) }
                             tab.offset = 0; reload()
                         }.labelStyle(.iconOnly).help("Apply this condition")
-                        Button("Remove condition", systemImage: "minus.circle") { tab.filters.removeAll { $0.id == filter.id } }.labelStyle(.iconOnly)
+                        Button("Remove condition", systemImage: "minus.circle") { removeCondition($filter) }.labelStyle(.iconOnly)
                     }
                 }
                 HStack {
@@ -67,6 +67,18 @@ struct FilterConditions: View {
                 if editingFilter { workspace.focusArea = .filter }
                 else if workspace.focusArea == .filter { workspace.focusArea = nil }
             }
+        }
+    }
+
+    func removeCondition(_ filter: Binding<ColumnFilter>) {
+        // Reading the row binding inside removeAll would read the array while it is being mutated.
+        let id = filter.wrappedValue.id
+        let applied = tab.appliedFilters.contains { $0.id == id }
+        tab.filters.removeAll { $0.id == id }
+        if applied {
+            tab.appliedFilters.removeAll { $0.id == id }
+            tab.offset = 0
+            reload()
         }
     }
 

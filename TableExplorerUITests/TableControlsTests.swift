@@ -3,6 +3,53 @@ import SQLite3
 
 final class TableControlsTests: XCTestCase {
     @MainActor
+    func testRemovingAppliedAndDraftFiltersKeepsTheEditorAlive() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(), directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "remove-filter.sqlite")
+        try SQLiteFixture.create(at: file)
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path; app.launch()
+        app.buttons["New Connection"].click(); app.buttons["Import from URL"].click()
+        app.textFields["Connection URL"].replaceText(with: file.absoluteString)
+        app.buttons["Import"].click(); app.buttons["Save and Connect"].click()
+        let window = app.windows["remove-filter — remove-filter.sqlite"]
+        XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
+        window.staticTexts["mesto"].click()
+        XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
+        window.buttons["Filters"].click()
+        let values = window.textFields.matching(identifier: "Filter Value")
+        let remove = window.buttons.matching(identifier: "Remove condition")
+        let apply = window.buttons.matching(identifier: "Apply condition")
+        values.element(boundBy: 0).replaceText(with: "1"); apply.element(boundBy: 0).click()
+        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        remove.element(boundBy: 0).click()
+        XCTAssertTrue(window.staticTexts["3 of 3 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(values.count, 0)
+
+        window.buttons["Add Condition"].click()
+        values.element(boundBy: 0).replaceText(with: "1"); apply.element(boundBy: 0).click()
+        window.buttons["Add Condition"].click(); values.element(boundBy: 1).replaceText(with: "2")
+        remove.element(boundBy: 0).click()
+        XCTAssertTrue(window.staticTexts["3 of 3 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(values.count, 1)
+        XCTAssertEqual(values.element(boundBy: 0).value as? String, "2")
+        apply.element(boundBy: 0).click()
+        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(window.staticTexts["grid-0-nazev"].value as? String, "Košice")
+
+        window.buttons["Add Condition"].click(); values.element(boundBy: 1).replaceText(with: "3")
+        remove.element(boundBy: 1).click()
+        XCTAssertEqual(values.count, 1)
+        XCTAssertTrue(window.staticTexts["1 of 1 rows"].exists)
+        window.buttons["Add Condition"].click(); values.element(boundBy: 1).replaceText(with: "3")
+        window.buttons["Unset"].click()
+        XCTAssertTrue(window.staticTexts["3 of 3 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(values.count, 0)
+    }
+
+    @MainActor
     func testRefreshShortcutAndButtonReloadExternalChanges() throws {
         continueAfterFailure = false
         let app = XCUIApplication(), directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
