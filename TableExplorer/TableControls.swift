@@ -30,10 +30,10 @@ struct TableControls: View {
 struct FilterConditions: View {
     let workspace: Workspace
     @Bindable var tab: WorkspaceTab
-    @FocusState private var editingFilter: Bool
+    @FocusState private var editingFilter: UUID?
     private func reload() { Task { await workspace.load(tab) } }
     var body: some View {
-        if tab.filterEditorVisible {
+        if tab.filterEditorVisible && !tab.filters.isEmpty {
             VStack(alignment: .leading) {
                 ForEach($tab.filters) { $filter in
                     HStack {
@@ -44,30 +44,43 @@ struct FilterConditions: View {
                             }.labelsHidden().accessibilityLabel("Filter Column")
                         }
                         Picker("Operator", selection: $filter.operation) {
-                            ForEach(ColumnFilter.Operation.allCases, id: \.self) { Text($0.rawValue) }
+                            ForEach(ColumnFilter.Operation.allCases, id: \.self) { Text($0.label) }
                         }.labelsHidden().accessibilityLabel("Filter Operator")
-                        if filter.operation != .isNull && filter.operation != .notNull {
+                        if filter.acceptsValue {
                             TextField(filter.operation == .raw ? "SQL predicate" : "Value", text: $filter.value)
-                                .accessibilityIdentifier("Filter Value").focused($editingFilter).onChange(of: filter.value) { filter.typed = nil }
+                                .accessibilityIdentifier("Filter Value").focused($editingFilter, equals: filter.id).onChange(of: filter.value) { filter.typed = nil }
+                                .onSubmit { applyCondition(filter) }
                         }
                         Button("Apply condition", systemImage: tab.appliedFilters.contains(filter) ? "checkmark.circle.fill" : "checkmark.circle") {
-                            if let index = tab.appliedFilters.firstIndex(where: { $0.id == filter.id }) { tab.appliedFilters[index] = filter }
-                            else { tab.appliedFilters.append(filter) }
-                            tab.offset = 0; reload()
+                            applyCondition(filter)
                         }.labelStyle(.iconOnly).help("Apply this condition")
                         Button("Remove condition", systemImage: "minus.circle") { removeCondition($filter) }.labelStyle(.iconOnly)
                     }
                 }
                 HStack {
                     Button("Add Condition") { addFilter() }
-                    Button("Unset") { tab.filters = []; tab.appliedFilters = []; tab.offset = 0; reload() }
+                    Button("Unset") { tab.filters = []; tab.appliedFilters = []; tab.filterEditorVisible = false; tab.offset = 0; reload() }
                     Button("Apply Filters") { Task { await workspace.applyFilters(tab) } }.help("Apply all conditions")
                 }
             }.padding(7).background(BrowserChrome.panel).onChange(of: editingFilter) {
-                if editingFilter { workspace.focusArea = .filter }
+                if editingFilter != nil { workspace.focusArea = .filter }
                 else if workspace.focusArea == .filter { workspace.focusArea = nil }
             }
+            .task(id: tab.filterFocusRequest) {
+                guard tab.filterFocusRequest != nil else { return }
+                await Task.yield()
+                editingFilter = tab.filters.first(where: \.acceptsValue)?.id
+                tab.filterFocusRequest = nil
+            }
+            .onDisappear { if workspace.focusArea == .filter { workspace.focusArea = nil } }
         }
+    }
+
+    private func applyCondition(_ filter: ColumnFilter) {
+        if let index = tab.appliedFilters.firstIndex(where: { $0.id == filter.id }) { tab.appliedFilters[index] = filter }
+        else { tab.appliedFilters.append(filter) }
+        tab.offset = 0
+        reload()
     }
 
     func removeCondition(_ filter: Binding<ColumnFilter>) {
@@ -75,6 +88,7 @@ struct FilterConditions: View {
         let id = filter.wrappedValue.id
         let applied = tab.appliedFilters.contains { $0.id == id }
         tab.filters.removeAll { $0.id == id }
+        if tab.filters.isEmpty { tab.filterEditorVisible = false }
         if applied {
             tab.appliedFilters.removeAll { $0.id == id }
             tab.offset = 0
@@ -83,6 +97,6 @@ struct FilterConditions: View {
     }
 
     private func addFilter() {
-        if let column = tab.result.columns.first { tab.filters.append(ColumnFilter(column: column)) }
+        if let column = tab.result.columns.first { tab.filters.append(ColumnFilter(column: column, operation: .equals)) }
     }
 }

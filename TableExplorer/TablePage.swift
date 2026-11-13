@@ -1,13 +1,27 @@
 import Foundation
 
 struct ColumnFilter: Identifiable, Hashable, Codable, Sendable {
-    enum Operation: String, CaseIterable, Codable, Sendable { case contains = "Contains", equals = "Equals", notEquals = "Not equal", less = "Less than", greater = "Greater than", isNull = "Is NULL", notNull = "Is not NULL", raw = "Raw SQL" }
+    enum Operation: String, CaseIterable, Codable, Sendable {
+        case contains = "Contains", equals = "Equals", notEquals = "Not equal", less = "Less than", greater = "Greater than", isNull = "Is NULL", notNull = "Is not NULL", raw = "Raw SQL"
+
+        var label: String {
+            switch self {
+            case .contains: "% " + rawValue
+            case .equals: "= " + rawValue
+            case .notEquals: "≠ " + rawValue
+            case .less: "< " + rawValue
+            case .greater: "> " + rawValue
+            case .isNull, .notNull, .raw: rawValue
+            }
+        }
+    }
     var id = UUID()
     var enabled = true
     var column: String
     var operation = Operation.contains
     var value = ""
     var typed: SQLValue?
+    var acceptsValue: Bool { operation != .isNull && operation != .notNull }
 }
 
 struct TablePage: Sendable {

@@ -324,7 +324,7 @@ private struct WorkspaceTabView: View {
                         if let ddl = row.first(where: { $0.display.uppercased().contains("CREATE ") }) {
                             ScrollView { Text(ddl.display).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                         } else { Text("The server did not expose this definition to your account.").accessibilityIdentifier("routineUnavailable") }
-                    } else { ResultTable(result: tab.structureResult, selected: .constant(nil)) }
+                    } else { ResultTable(result: tab.structureResult, selected: .constant(nil), selectableText: true) }
                 } else {
                     DataGrid(workspace: workspace, tab: tab).frame(minHeight: 130).layoutPriority(1)
                 }

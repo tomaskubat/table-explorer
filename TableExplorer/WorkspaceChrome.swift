@@ -7,6 +7,7 @@ struct WorkspaceTitleBar: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var statusColor: Color { workspace.profile.badgeColor }
+    private var hasChanges: Bool { workspace.active?.changes.isEmpty == false }
     private var statusOpacity: Double {
         guard let color = workspace.profile.tagColor, !color.hasPrefix("#") else { return colorScheme == .dark ? 0.25 : 1 }
         return 0.18 // Preserve the softer appearance of legacy system colors.
@@ -18,9 +19,14 @@ struct WorkspaceTitleBar: View {
             tool("Saved Connections", "powerplug") { openWindow(id: "connections") }
             tool("Close Tab", "xmark.circle", action: closeTab).disabled(workspace.active == nil || workspace.active?.busy == true)
             Divider().frame(height: 15)
-            tool("Preview Changes", "eye") { workspace.active?.previewShown = true }
-                .disabled(workspace.active?.changes.isEmpty != false)
+            tool("Preview Changes", "eye", active: hasChanges) { workspace.active?.previewShown = true }
+                .disabled(!hasChanges || workspace.active?.busy != false)
                 .accessibilityLabel("Review Staged Changes")
+                .accessibilityValue(hasChanges ? "Pending changes" : "No pending changes")
+            tool("Discard Changes", "arrow.uturn.backward", active: hasChanges) { workspace.active?.discard() }
+                .disabled(!hasChanges || workspace.active?.busy != false)
+                .accessibilityLabel("Discard Staged Changes")
+                .accessibilityValue(hasChanges ? "Pending changes" : "No pending changes")
             if workspace.profile.driver == .mariaDB {
                 tool("Database", "cylinder") { workspace.databaseSelectorShown = true }.disabled(!workspace.connected)
             }
@@ -66,6 +72,9 @@ struct WorkspaceTitleBar: View {
 
 struct WorkspaceConsole: View {
     let workspace: Workspace
+    @State private var followsLatest = true
+    @State private var scrollPhase = ScrollPhase.idle
+    private var userIsScrolling: Bool { scrollPhase == .tracking || scrollPhase == .interacting || scrollPhase == .decelerating }
     private static let timestamp: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -83,10 +92,24 @@ struct WorkspaceConsole: View {
                             Text("-- " + Self.timestamp.string(from: entry.date))
                                 .foregroundStyle(highlight ? Color(nsColor: .systemGreen) : .secondary)
                             Text(highlight ? SQLSyntax.colored(entry.text) : AttributedString(entry.text))
+                                .fixedSize(horizontal: false, vertical: true)
                         }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }
                 }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
             }
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(followsLatest ? .bottom : nil, for: .sizeChanges)
+            .onScrollPhaseChange { _, phase, context in
+                let wasUserScrolling = userIsScrolling
+                scrollPhase = phase
+                if wasUserScrolling || userIsScrolling {
+                    followsLatest = isAtEnd(context.geometry)
+                }
+            }
+            .onScrollGeometryChange(for: Bool.self, of: isAtEnd) { _, atEnd in
+                if userIsScrolling { followsLatest = atEnd }
+            }
+            .onChange(of: workspace.log.isEmpty) { if workspace.log.isEmpty { followsLatest = true } }
             .overlay {
                 if workspace.log.isEmpty {
                     Text("Open a table or run a query to see its SQL.").font(.caption).foregroundStyle(.secondary)
@@ -101,6 +124,10 @@ struct WorkspaceConsole: View {
                 Spacer()
             }.font(.caption).padding(.horizontal, 9).frame(height: 27)
         }.background(BrowserChrome.paper)
+    }
+
+    private func isAtEnd(_ geometry: ScrollGeometry) -> Bool {
+        geometry.visibleRect.maxY >= geometry.contentSize.height - 4
     }
 }
 

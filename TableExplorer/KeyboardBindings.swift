@@ -14,7 +14,9 @@ enum BrowserAction: String, CaseIterable {
         switch self {
         case .newQuery: .init("t"); case .connections: .init("n"); case .document: .init("n", [.command,.shift])
         case .openFile: .init("o"); case .close: .init("w"); case .save: .init("s"); case .search: .init("p")
-        case .console: .init("c", [.command,.shift]); case .nextTab: .init("]"); case .previousTab: .init("[")
+        case .console: .init("c", [.command,.shift])
+        case .nextTab: .init(String(KeyEquivalent.rightArrow.character), [.command,.shift])
+        case .previousTab: .init(String(KeyEquivalent.leftArrow.character), [.command,.shift])
         case .nextWorkspace: .init("]", [.command,.shift]); case .previousWorkspace: .init("[", [.command,.shift])
         case .nextPane: .init("]", [.command,.option]); case .previousPane: .init("[", [.command,.option])
         case .data: .init("[", [.command,.control]); case .structure: .init("]", [.command,.control])

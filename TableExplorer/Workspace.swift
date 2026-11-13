@@ -61,10 +61,13 @@ final class WorkspaceTab: Identifiable {
     var totalCount: Int?
     var hasNextPage: Bool { totalCount.map { offset + result.rows.count < $0 } ?? false }
     var filterEditorVisible = false
+    var filterFocusRequest: UUID?
     var columnsShown = false
     func toggleFilters() {
-        filterEditorVisible.toggle()
-        if filters.isEmpty, let column = result.columns.first { filters.append(ColumnFilter(column: column)) }
+        if filters.isEmpty {
+            if let column = result.columns.first { filters.append(ColumnFilter(column: column)) }
+            filterEditorVisible = true
+        } else { filterEditorVisible.toggle() }
     }
     var filters: [ColumnFilter] = []
     var appliedFilters: [ColumnFilter] = []
@@ -231,6 +234,18 @@ final class Workspace: Identifiable {
     var hasDrafts: Bool { tabs.contains { !$0.changes.isEmpty } }
     var hasRunningTasks: Bool { maintenanceBusy || transferBusy || tabs.contains { $0.busy } }
     var canRefreshActiveTable: Bool { active.map(canRefresh) ?? false }
+    var canShowFilters: Bool { connected && (active?.object?.kind == .table || active?.object?.kind == .view) }
+
+    func showFilters() {
+        guard canShowFilters, let tab = active else { return }
+        tab.showStructure = false
+        tab.filterEditorVisible = true
+        if !tab.filters.contains(where: \.acceptsValue) {
+            tab.filters.append(ColumnFilter(column: "", operation: .raw))
+        }
+        tab.filterFocusRequest = UUID()
+        window?.makeKeyAndOrderFront(nil)
+    }
 
     init(profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, notebook: QueryNotebook, shouldRemember: (() -> Bool)? = nil) {
         self.notebook = notebook; self.password = password; self.sshPassword = sshPassword
@@ -500,7 +515,8 @@ final class Workspace: Identifiable {
         guard connected, !tab.busy, let object = tab.object else { return }
         tab.busy = true; tab.commitError = nil
         do {
-            try await session.commit(tab.changes, object: object, driver: profile.driver)
+            let statements = try await session.commit(tab.changes, object: object, driver: profile.driver)
+            log.append(contentsOf: statements)
             let closeAfterCommit = tab.closeAfterCommit
             tab.discard(); tab.previewShown = false
             if closeAfterCommit {

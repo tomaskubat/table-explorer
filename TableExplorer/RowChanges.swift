@@ -15,6 +15,7 @@ struct RowStatement: Sendable {
     let sql: String
     let bindings: [SQLValue]
     let preview: String
+    let formattedPreview: String
 }
 
 enum ChangeSQL {
@@ -34,28 +35,35 @@ enum ChangeSQL {
         }
         guard object.kind == .table, schema.transactional else { throw BrowserError("This object does not support transactional row editing.") }
 
-        let form: ([String], [String]) -> String
+        let form: ([String], [String], Bool) -> String
         var keys: [SQLValue] = []
         if let original = change.original {
             let keyNames = schema.key.map(\.name)
             keys = keyNames.compactMap { original[$0] }
             guard !keys.isEmpty, keys.count == keyNames.count, !keys.contains(.null) else { throw BrowserError("A non-NULL primary key is required to identify this row.") }
             guard change.deleted || !fields.isEmpty else { throw BrowserError("There are no changed fields.") }
-            form = { replacements, identity in
-                let predicate = zip(keyNames, identity).map { DatabaseSession.identifier($0) + " = " + $1 }.joined(separator: " AND ")
-                if change.deleted { return "DELETE FROM \(name) WHERE \(predicate)" }
-                let updates = zip(fields, replacements).map { DatabaseSession.identifier($0) + " = " + $1 }.joined(separator: ", ")
-                return "UPDATE \(name) SET \(updates) WHERE \(predicate)"
+            form = { replacements, identity, formatted in
+                let line = formatted ? "\n" : " ", indent = formatted ? "  " : ""
+                let predicate = zip(keyNames, identity).map { DatabaseSession.identifier($0) + " = " + $1 }.joined(separator: formatted ? "\n  AND " : " AND ")
+                if change.deleted { return "DELETE FROM \(name)\(line)WHERE\(line)\(indent)\(predicate)" }
+                let updates = zip(fields, replacements).map { DatabaseSession.identifier($0) + " = " + $1 }.joined(separator: formatted ? ",\n  " : ", ")
+                return "UPDATE \(name)\(line)SET\(line)\(indent)\(updates)\(line)WHERE\(line)\(indent)\(predicate)"
             }
         } else {
-            form = { replacements, _ in
-                if fields.isEmpty { return driver == .sqlite ? "INSERT INTO \(name) DEFAULT VALUES" : "INSERT INTO \(name) () VALUES ()" }
+            form = { replacements, _, formatted in
+                let line = formatted ? "\n" : " "
+                if fields.isEmpty { return driver == .sqlite ? "INSERT INTO \(name)\(line)DEFAULT VALUES" : "INSERT INTO \(name) ()\(line)VALUES ()" }
+                if formatted {
+                    return "INSERT INTO \(name) (\n  " + fields.map(DatabaseSession.identifier).joined(separator: ",\n  ") + "\n)\nVALUES (\n  " + replacements.joined(separator: ",\n  ") + "\n)"
+                }
                 return "INSERT INTO \(name) (" + fields.map(DatabaseSession.identifier).joined(separator: ", ") + ") VALUES (" + replacements.joined(separator: ", ") + ")"
             }
         }
         let boundValues = change.deleted ? [] : values
-        return try RowStatement(sql: form(change.deleted ? [] : replacements(literals: false), keys.map { _ in "?" }), bindings: boundValues + keys,
-                                preview: form(change.deleted ? [] : replacements(literals: true), keys.map { literal($0, driver: driver) }) + ";")
+        let literals = try change.deleted ? [] : replacements(literals: true)
+        let identity = keys.map { literal($0, driver: driver) }
+        return try RowStatement(sql: form(change.deleted ? [] : replacements(literals: false), keys.map { _ in "?" }, false), bindings: boundValues + keys,
+                                preview: form(literals, identity, false) + ";", formattedPreview: form(literals, identity, true) + ";")
     }
 
     static func literal(_ value: SQLValue, driver: DatabaseDriver) -> String {
@@ -74,7 +82,7 @@ enum ChangeSQL {
 }
 
 extension DatabaseSession {
-    func commit(_ changes: [RowChange], object: DatabaseObject, driver: DatabaseDriver) throws {
+    @discardableResult func commit(_ changes: [RowChange], object: DatabaseObject, driver: DatabaseDriver) throws -> [String] {
         let schema = try schema(of: object, driver: driver)
         let statements = try changes.map { try ChangeSQL.statement($0, object: object, schema: schema, driver: driver) }
         guard !hasOpenTransaction else { throw BrowserError("Finish the current SQL transaction before committing row changes.") }
@@ -94,6 +102,7 @@ extension DatabaseSession {
                 _ = try query(statement.sql, parameters: statement.bindings)
             }
             _ = try query("COMMIT")
+            return statements.map(\.preview)
         } catch {
             _ = try? query("ROLLBACK")
             throw error

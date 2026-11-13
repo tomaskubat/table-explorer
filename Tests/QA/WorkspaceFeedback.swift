@@ -7,15 +7,108 @@ import SwiftUI
         NSApplication.shared.setActivationPolicy(.accessory)
         Task { @MainActor in
             do {
+                if CommandLine.arguments.contains("--commit-feedback-only") {
+                    try await commitFeedback()
+                    exit(0)
+                }
                 try await removeFilters()
                 if !CommandLine.arguments.contains("--filters-only") {
-                    try await run(); try await refreshData(); try await sharedConnections()
+                    try await run(); try await refreshData(); try await sharedConnections(); try await commitFeedback()
                 }
                 exit(0)
             }
             catch { print(error.localizedDescription); exit(1) }
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func commitFeedback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var profile = ConnectionProfile()
+        profile.name = "Commit feedback"; profile.driver = .sqlite; profile.filePath = directory.appending(path: "edits.sqlite").path
+        _ = try SQLiteHandle(path: profile.filePath, create: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: "")
+        _ = try await session.query("CREATE TABLE cities(id INTEGER PRIMARY KEY, name TEXT)")
+        _ = try await session.query("INSERT INTO cities VALUES(1,'Brno'),(2,'Praha')")
+        let object = DatabaseObject(name: "cities", kind: .table)
+        let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+                                  notebook: QueryNotebook(directory: directory, profile: profile.id))
+        await workspace.start(); await workspace.open(object)
+        let tab = workspace.active!
+        func check(_ condition: Bool, _ label: String) throws {
+            guard condition else { throw BrowserError("FAIL: " + label) }
+            print("PASS: " + label)
+        }
+        workspace.focusArea = .items; workspace.showFilters()
+        try check(tab.filters.count == 1 && tab.filters[0].operation == .raw && tab.filterFocusRequest != nil,
+                  "the filter command creates a raw SQL condition and requests input focus")
+        tab.filters[0].value = "id = 1"
+        let filterID = tab.filters[0].id, focusRequest = tab.filterFocusRequest
+        workspace.showFilters()
+        try check(tab.filters.count == 1 && tab.filters[0].id == filterID && tab.filters[0].value == "id = 1" && tab.filterFocusRequest != focusRequest,
+                  "reopening filters preserves the SQL draft and requests focus again")
+        tab.filters = [ColumnFilter(column: "name", operation: .isNull)]; workspace.showFilters()
+        try check(tab.filters.count == 2 && tab.filters.last?.operation == .raw, "the filter command provides an input when existing conditions have no value field")
+        tab.filters = []; tab.filterEditorVisible = false
+        var edit = tab.editRow(at: 0)!
+        edit.changes["name"] = .text("Brno's centre"); tab.stage(edit)
+        let update = try ChangeSQL.statement(edit, object: object, schema: tab.schema!, driver: .sqlite).preview
+        workspace.log.removeAll()
+        await workspace.commit(tab)
+        try check(tab.changes.isEmpty && tab.result.rows[0][1] == .text("Brno's centre"), "committing a row saves the inline draft")
+        try check(workspace.log.entries.filter { $0.text == update }.count == 1,
+                  "the console records the committed UPDATE once with its actual escaped value")
+        try check(workspace.log.entries.first?.text == update, "the committed UPDATE appears before the refreshed SELECT")
+
+        let insert = RowChange(original: nil, changes: ["name": .text("Ostrava")])
+        tab.stage(insert); workspace.log.removeAll()
+        await workspace.commit(tab)
+        try check(tab.changes.isEmpty && workspace.log.entries.contains { $0.text.hasPrefix("INSERT INTO") }, "the console also records committed INSERTs")
+        var deletion = tab.editRow(at: 2)!
+        deletion.deleted = true; tab.stage(deletion); workspace.log.removeAll()
+        await workspace.commit(tab)
+        try check(tab.changes.isEmpty && tab.result.rows.count == 2 && workspace.log.entries.contains { $0.text.hasPrefix("DELETE FROM") },
+                  "the console also records committed DELETEs")
+
+        var first = tab.editRow(at: 0)!, second = tab.editRow(at: 1)!
+        first.changes["name"] = .text("Rolled back"); second.changes["name"] = .text("Conflicting draft")
+        tab.stage([first, second])
+        _ = try await session.query("UPDATE cities SET name='External change' WHERE id=2")
+        workspace.log.removeAll(); await workspace.commit(tab)
+        let rows = try await session.query("SELECT name FROM cities ORDER BY id")
+        try check(tab.changes.count == 2 && tab.commitError != nil && rows.rows[0][0] == .text("Brno's centre"),
+                  "a conflicting commit rolls back the batch and preserves drafts")
+        try check(!workspace.log.entries.contains { $0.text.hasPrefix("UPDATE ") }, "rolled back changes are not logged as committed SQL")
+
+        _ = try await session.query("CREATE TABLE preview(id INTEGER PRIMARY KEY, note TEXT, rank INTEGER DEFAULT 7)")
+        let previewObject = DatabaseObject(name: "preview", kind: .table)
+        let schema = try await session.schema(of: previewObject, driver: .sqlite)
+        let literal = "A; WHERE SET, 'quoted'\n" + String(repeating: "long_value_", count: 30)
+        let insertion = try ChangeSQL.statement(RowChange(original: nil, changes: ["id": .integer("1"), "note": .text(literal)]),
+                                               object: previewObject, schema: schema, driver: .sqlite)
+        _ = try await session.query(insertion.formattedPreview)
+        let inserted = try await session.query("SELECT * FROM preview")
+        try check(inserted.rows == [[.integer("1"), .text(literal), .integer("7")]], "formatted INSERT preserves long literals, semicolons, quotes and defaults")
+        let original = Dictionary(uniqueKeysWithValues: zip(inserted.columns, inserted.rows[0]))
+        let replacement = RowChange(original: original, changes: ["note": .text("Replaced; value"), "rank": .integer("9")])
+        let updatePreview = try ChangeSQL.statement(replacement, object: previewObject, schema: schema, driver: .sqlite)
+        try check(updatePreview.formattedPreview.contains("\nSET\n  ") && updatePreview.formattedPreview.contains(",\n  ") && updatePreview.formattedPreview.contains("\nWHERE\n  "),
+                  "formatted UPDATE separates clauses and assignments onto indented lines")
+        _ = try await session.query(updatePreview.formattedPreview)
+        let updated = try await session.query("SELECT * FROM preview")
+        try check(updated.rows == [[.integer("1"), .text("Replaced; value"), .integer("9")]], "formatted UPDATE keeps the original statement's meaning")
+        let batch = insertion.formattedPreview + "\n\n" + updatePreview.formattedPreview
+        try check(SQLDocument.statements(in: batch, driver: .sqlite).count == 2, "formatted preview separates statements without splitting semicolons inside literals")
+        var removal = RowChange(original: Dictionary(uniqueKeysWithValues: zip(updated.columns, updated.rows[0])))
+        removal.deleted = true
+        let deletionPreview = try ChangeSQL.statement(removal, object: previewObject, schema: schema, driver: .sqlite)
+        _ = try await session.query(deletionPreview.formattedPreview)
+        let deleted = try await session.query("SELECT * FROM preview")
+        try check(deleted.rows.isEmpty && deletionPreview.formattedPreview.contains("\nWHERE\n"), "formatted DELETE remains executable and separates its predicate")
+        await session.close()
     }
 
     @MainActor static func removeFilters() async throws {
@@ -54,15 +147,16 @@ import SwiftUI
             throw BrowserError("FAIL: removing an applied filter did not finish reloading data")
         }
         try await remove(0)
-        try check(tab.filters.isEmpty, "removing the last filter leaves the filter editor alive")
+        try check(tab.filters.isEmpty && !tab.filterEditorVisible, "removing the last filter closes the filter panel")
         try check(tab.appliedFilters.isEmpty && tab.result.rows.count == 2, "removing an applied filter restores all rows")
 
         tab.filters = [ColumnFilter(column: "name", operation: .equals, value: "Brno"),
                        ColumnFilter(column: "id", operation: .greater, value: "0")]
+        tab.filterEditorVisible = true
         await workspace.applyFilters(tab)
         let remainingID = tab.filters[1].id
         try await remove(0)
-        try check(tab.filters.map(\.id) == [remainingID] && tab.appliedFilters.map(\.id) == [remainingID] && tab.result.rows.count == 2,
+        try check(tab.filterEditorVisible && tab.filters.map(\.id) == [remainingID] && tab.appliedFilters.map(\.id) == [remainingID] && tab.result.rows.count == 2,
                   "removing the first applied filter preserves remaining conditions")
         tab.filters.append(ColumnFilter(column: "name", operation: .equals, value: "Praha"))
         let request = tab.requestID
@@ -77,6 +171,11 @@ import SwiftUI
         try await remove(0)
         try check(tab.offset == 0 && tab.totalCount == 2 && tab.result.rows.count == 1,
                   "removing the last applied filter resets pagination and restores the row count")
+        workspace.showFilters()
+        let unchanged = tab.requestID
+        controls.removeCondition(filters[0])
+        try check(tab.filters.isEmpty && !tab.filterEditorVisible && tab.requestID == unchanged,
+                  "removing the last unapplied filter also closes the panel without reloading")
         await session.close()
     }
 

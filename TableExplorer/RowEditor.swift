@@ -126,7 +126,7 @@ private struct ChangePreview: View {
     @Environment(\.dismiss) private var dismiss
     private var sql: String {
         guard let object = tab.object, let schema = tab.schema else { return "" }
-        do { return try tab.changes.map { try ChangeSQL.statement($0, object: object, schema: schema, driver: workspace.profile.driver).preview }.joined(separator: "\n") }
+        do { return try tab.changes.map { try ChangeSQL.statement($0, object: object, schema: schema, driver: workspace.profile.driver).formattedPreview }.joined(separator: "\n\n") }
         catch { return error.localizedDescription }
     }
 
@@ -134,14 +134,18 @@ private struct ChangePreview: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Preview Changes").font(.title2)
             Text("\(workspace.profile.name) / \(workspace.database) / \(tab.title)").foregroundStyle(.secondary)
-            ScrollView { Text(sql).font(.system(.body, design: .monospaced)).textSelection(.enabled).accessibilityIdentifier("changePreviewSQL").frame(maxWidth: .infinity, alignment: .leading) }
+            ScrollView {
+                Text(SQLSyntax.colored(sql)).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                    .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("changePreviewSQL")
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
             if let error = tab.commitError { Text(error).foregroundStyle(.red).accessibilityIdentifier("commitError") }
             HStack {
                 Spacer()
                 Button("Close Preview") { tab.closeAfterCommit = false; dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Commit Changes") { Task { await workspace.commit(tab) } }.keyboardShortcut(Keymap.saved[.save].shortcut).disabled(tab.busy || !workspace.connected)
             }
-        }.padding(20).frame(width: 550, height: 280).interactiveDismissDisabled(tab.busy)
+        }.padding(20).frame(width: 650, height: 420).interactiveDismissDisabled(tab.busy)
         .onDisappear { tab.closeAfterCommit = false }
     }
 }

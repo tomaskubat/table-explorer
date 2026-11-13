@@ -85,7 +85,8 @@ struct WorkspaceCommands: Commands {
                 if let workspace, let activeTab { Task { await workspace.refresh(activeTab) } }
             }.keyboardShortcut(map[.refresh].shortcut)
                 .disabled(workspace?.canRefreshActiveTable != true)
-            Button("Show Filters") { activeTab?.toggleFilters() }.keyboardShortcut(map[.filters].shortcut).disabled(!gridFocused)
+            Button("Show Filters") { filterWorkspace?.showFilters() }.keyboardShortcut(map[.filters].shortcut)
+                .disabled(filterWorkspace?.canShowFilters != true)
             Button(workspace?.focusArea == .filter ? "Apply All Conditions" : "Run Current Statement") {
                 if let workspace, let activeTab {
                     if workspace.focusArea == .filter { Task { await workspace.applyFilters(activeTab) } }
@@ -167,6 +168,7 @@ struct WorkspaceCommands: Commands {
             Task { do { try await openDocument(at: url) } catch { NSApp.presentError(error) } }
         }
     }
+    private var filterWorkspace: Workspace? { workspace ?? registry.active }
     private var gridFocused: Bool {
         workspace?.focusArea == .grid && workspace?.connected == true && workspace?.active?.showStructure == false
             && NSApp.keyWindow?.firstResponder is DataGrid.GridTable

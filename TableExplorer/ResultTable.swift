@@ -5,6 +5,7 @@ import SwiftUI
 struct ResultTable: NSViewRepresentable {
     let result: QueryResult
     @Binding var selected: Int?
+    var selectableText = false
     @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var fontSize = 14.0
 
     @TableStylePreference private var style
@@ -14,6 +15,7 @@ struct ResultTable: NSViewRepresentable {
         let table = NSTableView()
         GridAppearance.configure(table)
         table.delegate = context.coordinator; table.dataSource = context.coordinator
+        table.target = context.coordinator; table.doubleAction = #selector(Coordinator.selectCellText(_:))
         table.setAccessibilityLabel("Query Results")
         let scroll = NSScrollView()
         scroll.hasHorizontalScroller = true; scroll.hasVerticalScroller = true
@@ -25,7 +27,7 @@ struct ResultTable: NSViewRepresentable {
         style.apply(to: table, scroll: scroll)
         let c = context.coordinator
         let columnsChanged = c.columns != result.columns
-        let reload = columnsChanged || c.parent.result.rows != result.rows || c.size != fontSize || c.style != style
+        let reload = columnsChanged || c.parent.result.rows != result.rows || c.parent.selectableText != selectableText || c.size != fontSize || c.style != style
         c.applying = true; defer { c.applying = false }
         c.parent = self; c.size = fontSize; c.style = style
         table.rowHeight = max(22, fontSize + 14)
@@ -33,7 +35,9 @@ struct ResultTable: NSViewRepresentable {
             c.columns = result.columns
             for col in table.tableColumns { table.removeTableColumn(col) }
             for (index, name) in result.columns.enumerated() {
-                table.addTableColumn(GridAppearance.column(name, index: index, rows: result.rows, fontSize: fontSize, family: style.family))
+                let column = GridAppearance.column(name, index: index, rows: result.rows, fontSize: fontSize, family: style.family)
+                column.isEditable = false
+                table.addTableColumn(column)
             }
         }
         if reload { table.reloadData() }
@@ -48,6 +52,12 @@ struct ResultTable: NSViewRepresentable {
         var size = 0.0
         var applying = false
         init(_ parent: ResultTable) { self.parent = parent }
+        @objc func selectCellText(_ table: NSTableView) {
+            guard parent.selectableText, table.clickedRow >= 0, table.clickedColumn >= 0,
+                  let cell = table.view(atColumn: table.clickedColumn, row: table.clickedRow, makeIfNecessary: true) as? NSTableCellView else { return }
+            // The table restores its first responder after handling the double click.
+            DispatchQueue.main.async { [weak field = cell.textField] in field?.selectText(nil) }
+        }
         func numberOfRows(in tableView: NSTableView) -> Int { parent.result.rows.count }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard let col = tableColumn.flatMap({ Int($0.identifier.rawValue) }),
@@ -55,6 +65,7 @@ struct ResultTable: NSViewRepresentable {
             let cell = GridAppearance.cell(in: tableView)
             let value = parent.result.rows[row][col]
             GridAppearance.show(value, in: cell, size: size, style: style)
+            cell.textField?.isSelectable = parent.selectableText
             return cell
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
