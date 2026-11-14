@@ -13,5 +13,5 @@ done
 connector=$(brew --prefix mariadb-connector-c)
 xcrun swiftc -swift-version 6 -parse-as-library -module-cache-path .build/WorkspaceFeedbackCompilerCache \
     -I Drivers -Xcc "-I$connector/include/mariadb" "-L$connector/lib" -lmariadb -lsqlite3 \
-    -o "$work/check" Tests/QA/WorkspaceFeedback.swift "${sources[@]}"
+    -o "$work/check" Tests/QA/WorkspaceFeedback.swift Tests/QA/FilterCompletion.swift "${sources[@]}"
 CONNECTION_BROWSER_LIBRARY="$work/library" "$work/check" "$@"

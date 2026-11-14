@@ -47,15 +47,26 @@ struct FilterConditions: View {
                             ForEach(ColumnFilter.Operation.allCases, id: \.self) { Text($0.label) }
                         }.labelsHidden().accessibilityLabel("Filter Operator")
                         if filter.acceptsValue {
-                            TextField(filter.operation == .raw ? "SQL predicate" : "Value", text: $filter.value)
-                                .accessibilityIdentifier("Filter Value").focused($editingFilter, equals: filter.id).onChange(of: filter.value) { filter.typed = nil }
-                                .onSubmit { applyCondition(filter) }
+                            if filter.operation == .raw {
+                                RawSQLFilterField(text: $filter.value, columns: completionColumns, driver: workspace.profile.driver,
+                                    focusRequest: tab.filters.first(where: \.acceptsValue)?.id == filter.id ? tab.filterFocusRequest : nil,
+                                    didFocus: { tab.filterFocusRequest = nil },
+                                    focusChanged: { focused in
+                                        if focused { workspace.focusArea = .filter }
+                                        else if workspace.focusArea == .filter { workspace.focusArea = nil }
+                                    }, submit: { applyCondition(filter) })
+                                    .frame(minWidth: 100, maxWidth: .infinity).frame(height: 22)
+                            } else {
+                                TextField("Value", text: $filter.value)
+                                    .accessibilityIdentifier("Filter Value").focused($editingFilter, equals: filter.id)
+                                    .onSubmit { applyCondition(filter) }
+                            }
                         }
                         Button("Apply condition", systemImage: tab.appliedFilters.contains(filter) ? "checkmark.circle.fill" : "checkmark.circle") {
                             applyCondition(filter)
                         }.labelStyle(.iconOnly).help("Apply this condition")
                         Button("Remove condition", systemImage: "minus.circle") { removeCondition($filter) }.labelStyle(.iconOnly)
-                    }
+                    }.onChange(of: filter.value) { filter.typed = nil }
                 }
                 HStack {
                     Button("Add Condition") { addFilter() }
@@ -68,11 +79,18 @@ struct FilterConditions: View {
             }
             .task(id: tab.filterFocusRequest) {
                 guard tab.filterFocusRequest != nil else { return }
+                guard tab.filters.first(where: \.acceptsValue)?.operation != .raw else { return }
                 await Task.yield()
                 editingFilter = tab.filters.first(where: \.acceptsValue)?.id
                 tab.filterFocusRequest = nil
             }
             .onDisappear { if workspace.focusArea == .filter { workspace.focusArea = nil } }
+        }
+    }
+
+    private var completionColumns: [ColumnInfo] {
+        tab.schema?.columns ?? tab.result.columns.map {
+            ColumnInfo(name: $0, type: "", nullable: true, defaultSQL: nil, keyOrder: 0, generated: false, automatic: false)
         }
     }
 

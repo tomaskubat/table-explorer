@@ -3,6 +3,49 @@ import SQLite3
 
 final class TableControlsTests: XCTestCase {
     @MainActor
+    func testRawSQLCompletionSupportsKeyboardSelectionAndRapidEdits() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(), directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { app.terminate(); try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "completion.sqlite")
+        try SQLiteFixture.create(at: file)
+        app.launchEnvironment["CONNECTION_BROWSER_LIBRARY"] = directory.path; app.launch()
+        app.buttons["New Connection"].click(); app.buttons["Import from URL"].click()
+        app.textFields["Connection URL"].replaceText(with: file.absoluteString)
+        app.buttons["Import"].click(); app.buttons["Save and Connect"].click()
+        let window = app.windows["completion — completion.sqlite"]
+        XCTAssertTrue(window.staticTexts["mesto"].waitForExistence(timeout: 5))
+        window.staticTexts["mesto"].click()
+        XCTAssertTrue(window.staticTexts["grid-0-nazev"].waitForExistence(timeout: 5))
+        app.typeKey("f", modifierFlags: .command)
+        let field = window.textFields["Filter Value"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.typeText("n"); app.typeKey(.tab, modifierFlags: [])
+        XCTAssertEqual(field.value as? String, "`nazev` ")
+        app.typeKey(.return, modifierFlags: []); app.typeKey(.tab, modifierFlags: [])
+        app.typeText("Brno"); app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "`nazev` = 'Brno' ")
+        for _ in 0..<3 {
+            field.replaceText(with: "i"); app.typeKey(.return, modifierFlags: [])
+            app.typeKey(.downArrow, modifierFlags: []); app.typeKey(.return, modifierFlags: [])
+            app.typeText("2"); app.typeKey(.return, modifierFlags: [])
+            XCTAssertEqual(field.value as? String, "`id` <> 2")
+            XCTAssertTrue(window.staticTexts["2 of 2 rows"].waitForExistence(timeout: 5))
+            XCTAssertFalse(window.staticTexts["queryError"].exists)
+        }
+        field.replaceText(with: "n"); app.typeKey(.escape, modifierFlags: [])
+        app.typeText("azev = 'Košice'"); app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(window.staticTexts["1 of 1 rows"].waitForExistence(timeout: 5))
+        XCTAssertEqual(window.staticTexts["grid-0-nazev"].value as? String, "Košice")
+        window.staticTexts["zeme"].click(); app.typeKey("f", modifierFlags: .command)
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.typeText("k"); app.typeKey(.tab, modifierFlags: [])
+        XCTAssertEqual(field.value as? String, "`kod` ")
+    }
+
+    @MainActor
     func testPreviewWrapsLongChangesAndConsoleRespectsManualScrolling() throws {
         continueAfterFailure = false
         let app = XCUIApplication(), directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

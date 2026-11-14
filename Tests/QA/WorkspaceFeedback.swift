@@ -7,13 +7,17 @@ import SwiftUI
         NSApplication.shared.setActivationPolicy(.accessory)
         Task { @MainActor in
             do {
+                if CommandLine.arguments.contains("--completion-only") {
+                    try filterCompletion()
+                    exit(0)
+                }
                 if CommandLine.arguments.contains("--commit-feedback-only") {
                     try await commitFeedback()
                     exit(0)
                 }
                 try await removeFilters()
                 if !CommandLine.arguments.contains("--filters-only") {
-                    try await run(); try await refreshData(); try await sharedConnections(); try await commitFeedback()
+                    try await run(); try await refreshData(); try await sharedConnections(); try await commitFeedback(); try filterCompletion()
                 }
                 exit(0)
             }
