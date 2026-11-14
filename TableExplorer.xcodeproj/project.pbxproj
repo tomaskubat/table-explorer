@@ -34,6 +34,7 @@
 /* Begin PBXFileReference section */
 		AC0000000000000000000006 /* TableExplorer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = TableExplorer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC0000000000000000000007 /* TableExplorerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = TableExplorerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC0000000000000000000008 /* CodeSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/CodeSigning.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -47,6 +48,7 @@
 			children = (
 				AC0000000000000000000004 /* TableExplorer */,
 				AC0000000000000000000005 /* TableExplorerUITests */,
+				AC0000000000000000000008 /* CodeSigning.xcconfig */,
 				AC0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -134,10 +136,10 @@
 /* Begin XCBuildConfiguration section */
 		AC0000000000000000000050 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AC0000000000000000000008 /* CodeSigning.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = arm64;
-				CODE_SIGN_IDENTITY = "-";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -151,10 +153,10 @@
 		};
 		AC0000000000000000000051 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AC0000000000000000000008 /* CodeSigning.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = arm64;
-				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;

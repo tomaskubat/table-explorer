@@ -1,0 +1,5 @@
+// Public certificate fingerprint from table-explorer-signing.pem.
+// The matching private key stays in the signing Mac's Keychain.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = A4381DE570848308914F71AD42D575817CC68907
+OTHER_CODE_SIGN_FLAGS = $(inherited) --timestamp=none
