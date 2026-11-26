@@ -134,6 +134,8 @@ struct WorkspaceConsole: View {
 struct RecordInspector: View {
     let workspace: Workspace
     @Binding var search: String
+    @State private var expandedField: Int?
+
     var body: some View {
         VStack(spacing: 0) {
             ChromeSearchField(title: "Search for field", text: $search)
@@ -147,26 +149,31 @@ struct RecordInspector: View {
                             let column = tab.schema?.columns.first { $0.name == name }
                             let multiple = tab.selectedRows.count > 1
                             VStack(alignment: .leading, spacing: 2) {
-                                HStack {
+                                HStack(spacing: 4) {
+                                    if expandedField == i {
+                                        Button("Collapse " + name, systemImage: "chevron.up") { expandedField = nil }
+                                            .labelStyle(.iconOnly).buttonStyle(.plain).help("Collapse value")
+                                    }
                                     Text(name).lineLimit(1)
                                     Spacer(minLength: 4)
                                     Text(column?.type.lowercased() ?? "").lineLimit(1).foregroundStyle(.secondary)
                                 }.font(.system(size: 10))
-                                HStack(spacing: 0) {
-                                    Text(multiple ? "Multiple values" : value.display.isEmpty ? "EMPTY" : value.display)
-                                        .font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
-                                        .foregroundStyle(multiple || value == .null || value.display.isEmpty ? .secondary : .primary)
-                                        .textSelection(.enabled).accessibilityIdentifier("detail-value-\(i)")
-                                    Spacer(minLength: 3)
-                                    if let column {
-                                        Button("Edit " + name, systemImage: "chevron.down") {
-                                            if !tab.hiddenColumns.contains(name) { tab.focusedColumn = name }
-                                            tab.cellEditor = CellEdit(column: name, value: value, draft: tab.editRow(at: index),
-                                                writable: workspace.connected && tab.canEdit(index) && !column.generated, nullable: column.nullable)
-                                        }.labelStyle(.iconOnly).font(.system(size: 9, weight: .semibold)).buttonStyle(.plain)
-                                            .disabled(multiple).accessibilityIdentifier("detail-edit-" + name)
+                                HStack(alignment: .top, spacing: 5) {
+                                    fieldValue(value, index: i, multiple: multiple)
+                                    if !multiple {
+                                        HStack(spacing: 4) {
+                                            fieldAction("Copy " + name, systemImage: "doc.on.doc") {
+                                                GridClipboard.copy(value.display)
+                                            }.help("Copy value").accessibilityIdentifier("detail-copy-" + name)
+                                            fieldAction("Open " + name, systemImage: "arrow.up.right.square") {
+                                                if !tab.hiddenColumns.contains(name) { tab.focusedColumn = name }
+                                                tab.cellEditor = CellEdit(column: name, value: value, draft: column == nil ? nil : tab.editRow(at: index),
+                                                    writable: workspace.connected && tab.canEdit(index) && column?.generated == false,
+                                                    nullable: column?.nullable == true)
+                                            }.help("Open value editor").accessibilityIdentifier("detail-edit-" + name)
+                                        }
                                     }
-                                }.padding(.horizontal, 6).frame(height: 23)
+                                }.padding(.horizontal, 6).padding(.vertical, 4)
                                 .background(BrowserChrome.paper, in: RoundedRectangle(cornerRadius: 3))
                             }.accessibilityElement(children: .contain)
                         }
@@ -177,6 +184,36 @@ struct RecordInspector: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }.frame(maxHeight: .infinity).background(BrowserChrome.panel)
+        .onChange(of: workspace.activeID) { expandedField = nil }
+        .onChange(of: workspace.active?.selectedRows) { expandedField = nil }
+    }
+
+    private func fieldAction(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage).resizable().scaledToFit().frame(width: 12, height: 12)
+                .frame(width: 16, height: 16).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+
+    @ViewBuilder private func fieldValue(_ value: SQLValue, index: Int, multiple: Bool) -> some View {
+        let display = value.display
+        let text = Text(multiple ? "Multiple values" : display.isEmpty ? "EMPTY" : display)
+            .font(.system(size: 13))
+            .foregroundStyle(multiple || value == .null || display.isEmpty ? .secondary : .primary)
+        if expandedField == index && !multiple {
+            let maxTextHeight: CGFloat = 242 // Keep the padded value within 250 pt.
+            let content = text.textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("detail-value-\(index)")
+            ViewThatFits(in: .vertical) {
+                content
+                ScrollView { content }.frame(height: maxTextHeight)
+            }.frame(maxHeight: maxTextHeight, alignment: .top)
+        } else {
+            text.lineLimit(1).truncationMode(.middle).accessibilityIdentifier("detail-value-\(index)")
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                .onTapGesture { if !multiple { expandedField = index } }
+                .accessibilityAction(named: "Expand value") { if !multiple { expandedField = index } }
+        }
     }
 }
 
@@ -184,16 +221,17 @@ struct SessionRail: View {
     let current: Workspace
     let registry: WorkspaceRegistry
     @Environment(\.openWindow) private var openWindow
+    @Environment(ConnectionLibrary.self) private var library: ConnectionLibrary?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 1) {
-                    ForEach(registry.sessions.values.sorted { ($0.profile.name, $0.id.uuidString) < ($1.profile.name, $1.id.uuidString) }) { session in
+                    ForEach(registry.orderedSessions) { session in
+                        let profile = savedProfile(for: session)
                         Button { registry.activate(session.id) } label: {
                             VStack(spacing: 7) {
-                                Image(systemName: "cylinder").font(.system(size: 17))
-                                    .foregroundStyle(session.connected ? session.profile.badgeColor : .secondary)
+                                connectionIcon(profile: profile, connected: session.connected)
                                 Text(session.database.isEmpty ? session.profile.name : session.database)
                                     .font(.system(size: 10)).lineLimit(2).multilineTextAlignment(.center)
                             }.frame(maxWidth: .infinity).frame(height: 75)
@@ -209,5 +247,20 @@ struct SessionRail: View {
             Button("Show Workspaces", systemImage: "square.grid.2x2") { openWindow(id: "workspaces") }
                 .buttonStyle(.plain).labelStyle(.iconOnly).help("Show workspaces").frame(height: 28)
         }.frame(width: 78).background(BrowserChrome.paper)
+    }
+
+    private func savedProfile(for session: Workspace) -> ConnectionProfile {
+        guard let library, library.directory.standardizedFileURL == session.notebook.libraryDirectory.standardizedFileURL else { return session.profile }
+        return library.groups.lazy.flatMap(\.connections).first { $0.id == session.profile.id } ?? session.profile
+    }
+
+    private func connectionIcon(profile: ConnectionProfile, connected: Bool) -> some View {
+        let color = profile.tagColor.map { _ in profile.badgeColor }
+        let rgb = color.flatMap { NSColor($0).usingColorSpace(.sRGB) }
+        let brightness = rgb.map { $0.redComponent * 0.299 + $0.greenComponent * 0.587 + $0.blueComponent * 0.114 }
+        let ink: Color = brightness.map { $0 > 0.54 ? .black : .white } ?? .primary
+        return Image(systemName: "cylinder").font(.system(size: 17)).foregroundStyle(ink)
+            .opacity(connected ? 1 : 0.48).frame(width: 32, height: 28)
+            .background(color ?? .clear, in: RoundedRectangle(cornerRadius: 5))
     }
 }

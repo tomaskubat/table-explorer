@@ -67,6 +67,7 @@ struct VariablesView: View {
     let tab: WorkspaceTab
     @State private var values: [String: String]
     @State private var reviewing = false
+    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = DirectSQLExecution.reviewWrites
     @Environment(\.dismiss) private var dismiss
 
     init(query: QueryVariables, workspace: Workspace, tab: WorkspaceTab) {
@@ -103,17 +104,21 @@ struct VariablesView: View {
                 Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 if reviewing {
                     Button("Back") { reviewing = false }
-                    Button("Run Statements") {
-                        tab.variableValues = values
-                        let sql = query.expanded(using: values)
-                        dismiss()
-                        Task { await workspace.run(sql, on: tab, templates: query.templates) }
-                    }.disabled(!workspace.connected || tab.busy)
+                    Button("Run Statements", action: run).disabled(!workspace.connected || tab.busy)
                 } else {
-                    Button("Review SQL") { reviewing = true }.keyboardShortcut(.return, modifiers: .command)
-                        .disabled(query.names.contains { (values[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                    Button(safety == .immediate ? "Run Statements" : "Review SQL") {
+                        if safety == .immediate { run() } else { reviewing = true }
+                    }.keyboardShortcut(.return, modifiers: .command)
+                        .disabled(!workspace.connected || tab.busy || query.names.contains { (values[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
                 }
             }
         }.padding(18).frame(width: 540, height: 330)
+    }
+
+    private func run() {
+        tab.variableValues = values
+        let sql = query.expanded(using: values)
+        dismiss()
+        Task { await workspace.run(sql, on: tab, templates: query.templates) }
     }
 }

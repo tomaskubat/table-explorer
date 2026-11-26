@@ -256,6 +256,7 @@ struct DataGrid: NSViewRepresentable {
                   let field = (table.view(atColumn: column, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField else { return }
             let info = columns[column]
             guard tab.schema?.columns.first(where: { $0.name == info.name })?.generated == false else { return }
+            tab.keepOpen()
             let value = rows[row][info.index]
             if case .blob = value { tab.editor = draft; return }
             editing = (row, info.name, draft)
@@ -279,33 +280,11 @@ struct DataGrid: NSViewRepresentable {
             if let table = field.superview?.superview?.superview as? NSTableView { table.reloadData() }
         }
 
-        private func copy(_ value: String) {
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
-        }
         func copySelected(format: RowCopyFormat, fallback: Int? = nil) {
             let indices = tab.selectedRows.isEmpty ? fallback.map { [$0] } ?? [] : tab.selectedRows.sorted()
             let values = indices.filter(rows.indices.contains).map { i in columns.map { rows[i][$0.index] } }
-            do { copy(try GridClipboard.encode(values, fields: columns.map(\.name), format: format, table: tab.title, driver: workspace.profile.driver)) }
+            do { GridClipboard.copy(try GridClipboard.encode(values, fields: columns.map(\.name), format: format, table: tab.title, driver: workspace.profile.driver)) }
             catch { tab.error = error.localizedDescription }
-        }
-
-        // NSMenuItem does not retain its target. The represented object owns
-        // the callback for exactly as long as the context menu is alive.
-        private final class Action: NSObject {
-            let handler: @MainActor () -> Void
-            init(_ handler: @escaping @MainActor () -> Void) { self.handler = handler }
-            @MainActor @objc func apply(_ sender: Any?) { handler() }
-        }
-        @discardableResult private func item(_ title: String, in menu: NSMenu, enabled: Bool = true, _ action: @escaping @MainActor () -> Void) -> NSMenuItem {
-            let target = Action(action)
-            let item = NSMenuItem(title: title, action: #selector(Action.apply(_:)), keyEquivalent: "")
-            item.target = target; item.representedObject = target; item.isEnabled = enabled; menu.addItem(item)
-            return item
-        }
-        private func submenu(_ title: String, in menu: NSMenu) -> NSMenu {
-            let child = NSMenu(title: title); child.autoenablesItems = false
-            let entry = NSMenuItem(title: title, action: nil, keyEquivalent: ""); entry.submenu = child; menu.addItem(entry)
-            return child
         }
 
         func menu(row: Int, column: Int) -> NSMenu? {
@@ -315,57 +294,57 @@ struct DataGrid: NSViewRepresentable {
             let metadata = tab.schema?.columns.first { $0.name == field.name }
             let writable = workspace.connected && tab.canEdit(row) && metadata?.generated == false
             let menu = NSMenu(); menu.autoenablesItems = false
-            item("Quick Look Editor", in: menu) {
+            GridContextMenu.item("Quick Look Editor", in: menu) {
                 if self.tab.selectedRows.isEmpty { self.tab.selected = row }
                 if self.tab.selectedRows.contains(row) { self.tab.focusedRow = row; self.tab.focusedColumn = field.name }
                 self.tab.cellEditor = CellEdit(column: field.name, value: value, draft: self.tab.editRow(at: row), writable: writable, nullable: metadata?.nullable == true)
             }
-            item("Refresh", in: menu, enabled: workspace.connected) { Task { await self.workspace.load(self.tab) } }
-            item("Paste", in: menu, enabled: writable && NSPasteboard.general.string(forType: .string) != nil) {
+            GridContextMenu.item("Refresh", in: menu, enabled: workspace.connected) { Task { await self.workspace.load(self.tab) } }
+            GridContextMenu.item("Paste", in: menu, enabled: writable && NSPasteboard.general.string(forType: .string) != nil) {
                 if let text = NSPasteboard.general.string(forType: .string) { self.set(.text(text), row: row, column: field.name) }
             }
-            item("Add Row", in: menu, enabled: workspace.connected && tab.canInsert) { self.tab.editor = RowChange(original: nil) }
-            item("Duplicate", in: menu, enabled: workspace.connected && tab.canInsert) { self.tab.duplicate(selected) }
-            let values = submenu("Set Value", in: menu)
-            item("Empty String", in: values, enabled: writable) { self.set(.text(""), row: row, column: field.name) }
-            item("NULL", in: values, enabled: writable && tab.schema?.columns.first(where: { $0.name == field.name })?.nullable == true) { self.set(.null, row: row, column: field.name) }
-            item("Default", in: values, enabled: writable && (metadata?.defaultSQL != nil || metadata?.nullable == true || tab.draft(at: row)?.original == nil && row >= tab.result.rows.count)) {
+            GridContextMenu.item("Add Row", in: menu, enabled: workspace.connected && tab.canInsert) { self.tab.editor = RowChange(original: nil) }
+            GridContextMenu.item("Duplicate", in: menu, enabled: workspace.connected && tab.canInsert) { self.tab.duplicate(selected) }
+            let values = GridContextMenu.submenu("Set Value", in: menu)
+            GridContextMenu.item("Empty String", in: values, enabled: writable) { self.set(.text(""), row: row, column: field.name) }
+            GridContextMenu.item("NULL", in: values, enabled: writable && tab.schema?.columns.first(where: { $0.name == field.name })?.nullable == true) { self.set(.null, row: row, column: field.name) }
+            GridContextMenu.item("Default", in: values, enabled: writable && (metadata?.defaultSQL != nil || metadata?.nullable == true || tab.draft(at: row)?.original == nil && row >= tab.result.rows.count)) {
                 guard var draft = self.tab.editRow(at: row) else { return }
                 draft.changes.removeValue(forKey: field.name)
                 if draft.original != nil { draft.defaults.insert(field.name) }
                 self.tab.stage(draft)
             }
-            item("From File…", in: values, enabled: writable) {
+            GridContextMenu.item("From File…", in: values, enabled: writable) {
                 let panel = NSOpenPanel()
                 if panel.runModal() == .OK, let url = panel.url {
                     do { self.set(.blob(try Data(contentsOf: url)), row: row, column: field.name) }
                     catch { self.tab.error = error.localizedDescription }
                 }
             }
-            item("Copy", in: menu) { self.copySelected(format: .text, fallback: row) }
-            item("Copy Cell Value", in: menu) { self.copy(value.display) }
-            item("Copy Column Values on This Page", in: menu) { self.copy(self.rows.map { $0[field.index].display }.joined(separator: "\n")) }
-            let formats = submenu("Copy Rows As", in: menu)
+            GridContextMenu.item("Copy", in: menu) { self.copySelected(format: .text, fallback: row) }
+            GridContextMenu.item("Copy Cell Value", in: menu) { GridClipboard.copy(value.display) }
+            GridContextMenu.item("Copy Column Values on This Page", in: menu) { GridClipboard.copy(self.rows.map { $0[field.index].display }.joined(separator: "\n")) }
+            let formats = GridContextMenu.submenu("Copy Rows As", in: menu)
             for format in RowCopyFormat.allCases {
-                item(format.rawValue, in: formats) { self.copySelected(format: format, fallback: row) }
+                GridContextMenu.item(format.rawValue, in: formats) { self.copySelected(format: format, fallback: row) }
             }
-            let filterMenu = submenu("Quick Filter", in: menu)
+            let filterMenu = GridContextMenu.submenu("Quick Filter", in: menu)
             let options: [(ColumnFilter.Operation, String)] = value == .null ? [(.isNull, "IS NULL"), (.notNull, "IS NOT NULL")] :
                 [(.equals, "="), (.notEquals, "<>"), (.less, "<"), (.greater, ">"), (.contains, "CONTAINS"), (.isNull, "IS NULL"), (.notNull, "IS NOT NULL")]
             for (op, symbol) in options {
                 let unary = op == .isNull || op == .notNull
                 let label = field.name + " " + symbol + (unary ? "" : " " + ChangeSQL.literal(value, driver: workspace.profile.driver))
-                item(label, in: filterMenu, enabled: workspace.connected) {
+                GridContextMenu.item(label, in: filterMenu, enabled: workspace.connected) {
                     let filter = ColumnFilter(column: field.name, operation: op, value: unary ? "" : value.display, typed: unary ? nil : value)
                     self.tab.filters = [filter]; self.tab.appliedFilters = [filter]
                     self.tab.filterEditorVisible = true; self.tab.offset = 0
                     Task { await self.workspace.load(self.tab) }
                 }
             }
-            item("Import CSV…", in: menu, enabled: workspace.connected && tab.canInsert && tab.changes.isEmpty) { self.tab.transfer = .importCSV }
-            item("Export Current Page…", in: menu, enabled: tab.changes.isEmpty) { self.tab.transfer = .exportPage }
+            GridContextMenu.item("Import CSV…", in: menu, enabled: workspace.connected && tab.canInsert && tab.changes.isEmpty) { self.tab.transfer = .importCSV }
+            GridContextMenu.item("Export Current Page…", in: menu, enabled: tab.changes.isEmpty) { self.tab.transfer = .exportPage }
             let deletions = tab.deletions(selected)
-            item("Mark \(deletions.count) Selected Rows for Deletion…", in: menu, enabled: workspace.connected && !deletions.isEmpty) {
+            GridContextMenu.item("Mark \(deletions.count) Selected Rows for Deletion…", in: menu, enabled: workspace.connected && !deletions.isEmpty) {
                 self.tab.deletionReview = deletions
             }
             return menu

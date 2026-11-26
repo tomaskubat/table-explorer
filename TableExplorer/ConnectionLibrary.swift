@@ -99,6 +99,7 @@ enum ProfilePassword {
 @MainActor @Observable
 final class ConnectionLibrary {
     private(set) var groups: [ConnectionGroup] = []
+    @ObservationIgnored private var sessionSecrets: [UUID: (database: String, ssh: String)] = [:]
     var loadError: String?
     private var file: URL
     var directory: URL { file.deletingLastPathComponent() }
@@ -139,6 +140,7 @@ final class ConnectionLibrary {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try JSONEncoder().encode(loaded).write(to: next, options: .withoutOverwriting)
         }
+        if next != file { sessionSecrets.removeAll() }
         file = next; groups = loaded; loadError = nil
         BrowserPreferences.defaults.set(folder.path, forKey: "libraryDirectory")
     }
@@ -150,6 +152,8 @@ final class ConnectionLibrary {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(next).write(to: file, options: .atomic)
         groups = next
+        let profiles = Set(next.flatMap(\.connections).map(\.id))
+        sessionSecrets = sessionSecrets.filter { profiles.contains($0.key) }
     }
 
     enum Insertion: Equatable { case before(UUID), after(UUID), end }
@@ -212,8 +216,19 @@ final class ConnectionLibrary {
             if touchesKeychain { try ProfilePassword.write(original, for: profile.id) }
             throw error
         }
+        let databaseSecret = profile.driver == .mariaDB && !profile.rememberPassword ? password : ""
+        let tunnelSecret = profile.ssh?.rememberSecret == false ? sshPassword : ""
+        sessionSecrets[profile.id] = databaseSecret.isEmpty && tunnelSecret.isEmpty ? nil : (databaseSecret, tunnelSecret)
         if !profile.remembersWorkspace {
             try WorkspaceStateFile(directory: directory, profile: profile.id).clear()
         }
+    }
+
+    func password(for profile: ConnectionProfile, ssh: Bool = false) throws -> String {
+        if ssh ? profile.ssh?.rememberSecret == true : profile.rememberPassword {
+            return try ProfilePassword.read(profile.id, ssh: ssh)
+        }
+        let secrets = sessionSecrets[profile.id]
+        return (ssh ? secrets?.ssh : secrets?.database) ?? ""
     }
 }

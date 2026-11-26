@@ -2,12 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum LibraryEditor: Identifiable {
-    case group(ConnectionGroup), profile(ConnectionProfile, UUID, error: String? = nil), choose(UUID)
+    case group(ConnectionGroup), profile(ConnectionProfile, UUID), choose(UUID)
     var id: UUID {
         switch self {
         case .choose(let id): id
         case .group(let group): group.id
-        case .profile(let profile, _, _): profile.id
+        case .profile(let profile, _): profile.id
         }
     }
 }
@@ -21,6 +21,14 @@ struct SavedConnectionsView: View {
     @State private var editor: LibraryEditor?
     @State private var removal: UUID?
     @State private var error: String?
+    @State private var connecting = false
+    @State private var failedConnection: ConnectionFailure?
+
+    private struct ConnectionFailure {
+        let profile: ConnectionProfile
+        let group: UUID
+        let message: String
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -54,9 +62,7 @@ struct SavedConnectionsView: View {
                 .contextMenu(forSelectionType: UUID.self) { ids in
                     libraryMenu(ids.first)
                 } primaryAction: { ids in
-                    if let id = ids.first, let (profile, group) = findProfile(id) {
-                        Task { await connectSaved(profile, group: group) }
-                    }
+                    if let id = ids.first, let (profile, group) = findProfile(id) { connect(profile, group: group) }
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden)
                 .environment(\.defaultMinListRowHeight, ConnectionGroupSection.rowHeight)
@@ -65,6 +71,7 @@ struct SavedConnectionsView: View {
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                         .disabled(library.groups.isEmpty).accessibilityLabel("New Connection")
                     Spacer()
+                    if connecting { ProgressView().controlSize(.small).accessibilityLabel("Connecting") }
                     Menu("Library", systemImage: "ellipsis.circle") {
                         Button("New Group…") { editor = .group(ConnectionGroup(name: "")) }
                         Button("Import Connections…") { importProfiles() }
@@ -75,15 +82,24 @@ struct SavedConnectionsView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 620, minHeight: 380)
+        .onAppear {
+            let showLibrary = openWindow
+            workspaces.onLastConnectionClosed = { showLibrary(id: "connections") }
+        }
         .task {
             var failures: [String] = []
             let startup = workspaces.takeStartupWindows(in: library.directory)
+            var restoredActive: UUID?
             for item in startup {
-                guard let (profile, group) = findProfile(item.profile) else { continue }
-                if let message = await connectSaved(profile, group: group, restoring: true, state: item.state) {
-                    failures.append(profile.name + ": " + message)
+                guard let (profile, _) = findProfile(item.profile) else { continue }
+                do {
+                    let workspace = try await connectSaved(profile, present: false, state: item.state)
+                    if item.active == true { restoredActive = workspace.id }
+                } catch {
+                    failures.append(profile.name + ": " + error.localizedDescription)
                 }
             }
+            if let restoredActive { workspaces.activate(restoredActive) }
             if !startup.isEmpty, workspaces.active != nil { presentWorkspace(hideLibrary: failures.isEmpty) }
             if !failures.isEmpty { error = failures.joined(separator: "\n") }
         }
@@ -94,8 +110,8 @@ struct SavedConnectionsView: View {
                     showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword)
                 }
             case .group(let group): GroupEditor(library: library, group: group)
-            case .profile(let profile, let group, let failure):
-                ProfileEditor(library: library, profile: profile, groupID: group, initialError: failure) { connection, session, database, password, sshPassword in
+            case .profile(let profile, let group):
+                ProfileEditor(library: library, profile: profile, groupID: group) { connection, session, database, password, sshPassword in
                     showWorkspace(connection, session: session, database: database, password: password, sshPassword: sshPassword)
                 }
             }
@@ -103,6 +119,13 @@ struct SavedConnectionsView: View {
         .alert("Connection Library", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
+        .alert("Could Not Connect", isPresented: Binding(get: { failedConnection != nil }, set: { if !$0 { failedConnection = nil } }), presenting: failedConnection) { failure in
+            Button("Edit Connection…") { editor = .profile(failure.profile, failure.group) }
+            Button("Retry") {
+                if let (profile, group) = findProfile(failure.profile.id) { connect(profile, group: group) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { failure in Text(failure.profile.name + "\n" + failure.message) }
         .confirmationDialog("Remove from the library?", isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }), presenting: removal) { id in
             Button("Remove", role: .destructive) { remove(id) }
             Button("Cancel", role: .cancel) {}
@@ -143,7 +166,7 @@ struct SavedConnectionsView: View {
     @ViewBuilder private func libraryMenu(_ id: UUID?) -> some View {
         let found = id.flatMap { findProfile($0) }
         let group = library.groups.first { $0.id == id }
-        Button("Connect") { if let (p, g) = found { Task { await connectSaved(p, group: g) } } }.disabled(found == nil)
+        Button("Connect") { if let (p, g) = found { connect(p, group: g) } }.disabled(found == nil || connecting)
         Button("New Connection…") { newProfile(in: group?.id ?? found?.1 ?? selectedGroup) }
         Button("New Group…") { editor = .group(ConnectionGroup(name: "")) }
         if let group {
@@ -213,27 +236,32 @@ struct SavedConnectionsView: View {
             }
         }
     }
-    @discardableResult private func connectSaved(_ profile: ConnectionProfile, group: UUID, restoring: Bool = false, state: RememberedWorkspace? = nil) async -> String? {
-        let session = DatabaseSession()
-        do {
-            let password = profile.rememberPassword ? try ProfilePassword.read(profile.id) : ""
-            let sshPassword = profile.ssh?.rememberSecret == true ? try ProfilePassword.read(profile.id, ssh: true) : ""
-            let database = try await session.open(profile, password: password, sshPassword: sshPassword)
-            showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword,
-                          startupState: state, present: !restoring)
-            return nil
-        } catch {
-            if !restoring { editor = .profile(profile, group, error: error.localizedDescription) }
-            return error.localizedDescription
+    private func connect(_ profile: ConnectionProfile, group: UUID) {
+        guard !connecting else { return }
+        connecting = true
+        Task {
+            defer { connecting = false }
+            do { try await connectSaved(profile) }
+            catch { failedConnection = ConnectionFailure(profile: profile, group: group, message: error.localizedDescription) }
         }
     }
-    private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, startupState: RememberedWorkspace? = nil, present: Bool = true) {
+
+    @discardableResult private func connectSaved(_ profile: ConnectionProfile, present: Bool = true, state: RememberedWorkspace? = nil) async throws -> Workspace {
+        let password = try library.password(for: profile)
+        let sshPassword = try library.password(for: profile, ssh: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: password, sshPassword: sshPassword)
+        return showWorkspace(profile, session: session, database: database, password: password, sshPassword: sshPassword,
+                             startupState: state, present: present)
+    }
+    @discardableResult private func showWorkspace(_ profile: ConnectionProfile, session: DatabaseSession, database: String, password: String, sshPassword: String, startupState: RememberedWorkspace? = nil, present: Bool = true) -> Workspace {
         let workspace = Workspace(profile: profile, session: session, database: database, password: password, sshPassword: sshPassword, notebook: workspaces.notebook(for: profile.id, directory: library.directory)) { [library] in
             library.groups.lazy.flatMap(\.connections).first { $0.id == profile.id }?.remembersWorkspace == true
         }
         workspace.startupState = startupState
         workspaces.add(workspace)
         if present { presentWorkspace() }
+        return workspace
     }
 
     private func presentWorkspace(hideLibrary: Bool = true) {

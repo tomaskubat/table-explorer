@@ -14,7 +14,6 @@ struct TableExplorerApp: App {
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
         let registry = WorkspaceRegistry()
-        registry.onLastConnectionClosed = { NSApp.terminate(nil) }
         _workspaces = State(initialValue: registry)
         _updates = StateObject(wrappedValue: ApplicationUpdates(workspaces: registry))
     }
@@ -40,7 +39,7 @@ struct TableExplorerApp: App {
         }
 
         Window("Workspace", id: "workspace") {
-            WorkspaceHostView(registry: workspaces).modifier(BrowserAppearance())
+            WorkspaceHostView(registry: workspaces).environment(library).modifier(BrowserAppearance())
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 760)
@@ -107,7 +106,7 @@ private struct WorkspacesView: View {
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
-                ForEach(registry.sessions.values.sorted { $0.profile.name < $1.profile.name }) { workspace in
+                ForEach(registry.orderedSessions) { workspace in
                     Button {
                         registry.activate(workspace.id)
                         openWindow(id: "workspace"); dismissWindow(id: "workspaces")

@@ -141,8 +141,7 @@ final class LibraryManagementTests: XCTestCase {
         let connected = app.windows["Move Me — catalog"]
         XCTAssertTrue(connected.staticTexts["country"].waitForExistence(timeout: 8))
         connected.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
-        app.launch()
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
         XCTAssertTrue(profile.waitForExistence(timeout: 5))
         profile.rightClick()
         app.menuItems["Remove…"].click()

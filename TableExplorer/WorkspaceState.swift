@@ -17,6 +17,7 @@ struct RememberedTab: Codable {
     var id: UUID
     var title: String
     var object: DatabaseObject?
+    var preview: Bool?
     var sql: String?
     var savedSQL: String?
     var fileURL: URL?
@@ -35,6 +36,7 @@ struct RememberedTab: Codable {
 
     @MainActor init(_ tab: WorkspaceTab) {
         id = tab.id; title = tab.title; object = tab.object
+        if tab.isPreview { preview = true }
         if object == nil, !QueryNotebook.containsCredentials(tab.sql), !QueryNotebook.containsCredentials(tab.savedSQL) {
             sql = tab.sql
             if tab.unsavedSQL { savedSQL = tab.savedSQL }
@@ -52,8 +54,8 @@ struct RememberedTab: Codable {
         for column in tab.grid?.tableColumns ?? [] { widths[column.title] = column.width }
     }
 
-    @MainActor func makeTab(id: UUID) -> WorkspaceTab {
-        let tab = WorkspaceTab(id: id, title: title, object: object)
+    @MainActor func makeTab(id: UUID, allowPreview: Bool) -> WorkspaceTab {
+        let tab = WorkspaceTab(id: id, title: title, object: object, isPreview: allowPreview && preview == true && object != nil)
         tab.sql = sql ?? ""; tab.savedSQL = savedSQL ?? tab.sql
         if let fileURL, fileURL.isFileURL {
             if let current = try? String(contentsOf: fileURL, encoding: .utf8) {
@@ -98,6 +100,7 @@ struct WorkspaceStateFile {
 struct StartupWindow: Codable {
     let profile: UUID
     let state: RememberedWorkspace?
+    var active: Bool?
 }
 
 enum StartupWindowFile {

@@ -55,13 +55,12 @@ struct ProfileEditor: View {
     @State private var succeeded = false
     @State private var busy = false
 
-    init(library: ConnectionLibrary, profile: ConnectionProfile, groupID: UUID, initialPassword: String = "", initialSSHPassword: String = "", initialError: String? = nil,
+    init(library: ConnectionLibrary, profile: ConnectionProfile, groupID: UUID, initialPassword: String = "", initialSSHPassword: String = "",
          onConnect: @escaping (ConnectionProfile, DatabaseSession, String, String, String) -> Void) {
         self.library = library; self.onConnect = onConnect
         _profile = State(initialValue: profile); _groupID = State(initialValue: groupID)
         _password = State(initialValue: initialPassword)
         _sshPassword = State(initialValue: initialSSHPassword)
-        _error = State(initialValue: initialError)
     }
 
     var body: some View {
@@ -115,12 +114,12 @@ struct ProfileEditor: View {
         .onChange(of: password) { succeeded = false; error = nil }
         .onChange(of: sshPassword) { succeeded = false; error = nil }
         .onAppear {
-            if profile.ssh?.rememberSecret == true {
-                do { sshPassword = try ProfilePassword.read(profile.id, ssh: true) }
+            if profile.ssh != nil, sshPassword.isEmpty {
+                do { sshPassword = try library.password(for: profile, ssh: true) }
                 catch { self.error = error.localizedDescription }
             }
-            if profile.rememberPassword {
-                do { password = try ProfilePassword.read(profile.id) }
+            if profile.driver == .mariaDB, password.isEmpty {
+                do { password = try library.password(for: profile) }
                 catch { self.error = error.localizedDescription }
             }
         }

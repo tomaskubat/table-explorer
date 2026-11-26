@@ -3,16 +3,34 @@ import SwiftUI
 /// The result viewer uses the same column sizing and row rhythm as an editable table.
 /// Columns are identified by position: a SELECT may return duplicate aliases.
 struct ResultTable: NSViewRepresentable {
+    struct QueryOptions {
+        let tab: WorkspaceTab
+        let driver: DatabaseDriver
+    }
+
     let result: QueryResult
     @Binding var selected: Int?
     var selectableText = false
+    var query: QueryOptions?
     @AppStorage("gridFontSize", store: BrowserPreferences.defaults) private var fontSize = 14.0
 
     @TableStylePreference private var style
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let table = NSTableView()
+        let table: NSTableView
+        if query != nil {
+            let grid = QueryTable()
+            let header = QueryHeader()
+            header.coordinator = context.coordinator
+            grid.headerView = header
+            grid.coordinator = context.coordinator
+            grid.allowsMultipleSelection = true
+            grid.allowsColumnReordering = false
+            table = grid
+        } else {
+            table = NSTableView()
+        }
         GridAppearance.configure(table)
         table.delegate = context.coordinator; table.dataSource = context.coordinator
         table.target = context.coordinator; table.doubleAction = #selector(Coordinator.selectCellText(_:))
@@ -41,8 +59,36 @@ struct ResultTable: NSViewRepresentable {
             }
         }
         if reload { table.reloadData() }
-        let selection = selected.flatMap { result.rows.indices.contains($0) ? IndexSet(integer: $0) : nil } ?? []
-        if table.selectedRowIndexes != selection { table.selectRowIndexes(selection, byExtendingSelection: false) }
+        let rows = query.map { IndexSet($0.tab.selectedRows.filter(result.rows.indices.contains)) } ??
+            (selected.flatMap { result.rows.indices.contains($0) ? IndexSet(integer: $0) : nil } ?? [])
+        if table.selectedRowIndexes != rows { table.selectRowIndexes(rows, byExtendingSelection: false) }
+        c.showSelectedColumn(in: table)
+    }
+
+    final class QueryTable: NSTableView {
+        weak var coordinator: Coordinator?
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            let point = convert(event.locationInWindow, from: nil)
+            return coordinator?.menu(in: self, row: row(at: point), column: column(at: point)) ?? super.menu(for: event)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            coordinator?.clearColumnSelection(in: self)
+            super.mouseDown(with: event)
+        }
+
+        @objc func copy(_ sender: Any?) { coordinator?.copySelection(in: self) }
+    }
+
+    final class QueryHeader: NSTableHeaderView {
+        weak var coordinator: Coordinator?
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            let index = column(at: convert(event.locationInWindow, from: nil))
+            guard let tableView else { return super.menu(for: event) }
+            return coordinator?.menu(in: tableView, row: -1, column: index) ?? super.menu(for: event)
+        }
     }
 
     @MainActor final class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
@@ -66,11 +112,113 @@ struct ResultTable: NSViewRepresentable {
             let value = parent.result.rows[row][col]
             GridAppearance.show(value, in: cell, size: size, style: style)
             cell.textField?.isSelectable = parent.selectableText
+            if parent.query != nil { highlight(cell, selected: col == parent.query?.tab.selectedResultColumn) }
             return cell
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !applying, let table = notification.object as? NSTableView else { return }
-            parent.selected = table.selectedRow >= 0 ? table.selectedRow : nil
+            let row = table.selectedRow >= 0 ? table.selectedRow : nil
+            if let tab = parent.query?.tab {
+                tab.selectedRows = Set(table.selectedRowIndexes)
+                tab.focusedRow = row
+                if row != nil { clearColumnSelection(in: table) }
+            } else {
+                parent.selected = row
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
+            guard let tab = parent.query?.tab, let column = Int(tableColumn.identifier.rawValue) else { return }
+            tableView.window?.makeFirstResponder(tableView)
+            tableView.deselectAll(nil)
+            tab.selectedResultColumn = tab.selectedResultColumn == column ? nil : column
+            showSelectedColumn(in: tableView)
+        }
+
+        func clearColumnSelection(in table: NSTableView) {
+            guard let tab = parent.query?.tab, tab.selectedResultColumn != nil else { return }
+            tab.selectedResultColumn = nil
+            showSelectedColumn(in: table)
+        }
+
+        func showSelectedColumn(in table: NSTableView) {
+            guard let query = parent.query else { return }
+            let column = query.tab.selectedResultColumn
+            let highlighted = column.flatMap { table.tableColumns.indices.contains($0) ? table.tableColumns[$0] : nil }
+            guard table.highlightedTableColumn !== highlighted else { return }
+            table.highlightedTableColumn = highlighted
+            table.enumerateAvailableRowViews { view, _ in
+                for index in 0..<view.numberOfColumns {
+                    if let cell = view.view(atColumn: index) as? NSView { highlight(cell, selected: index == column) }
+                }
+            }
+        }
+
+        private func highlight(_ cell: NSView, selected: Bool) {
+            if selected { cell.wantsLayer = true }
+            cell.layer?.backgroundColor = selected ? NSColor.controlAccentColor.withAlphaComponent(0.13).cgColor : nil
+        }
+
+        func copySelection(in table: NSTableView) {
+            let result = parent.result
+            if let column = parent.query?.tab.selectedResultColumn {
+                copy(result, rows: IndexSet(integersIn: result.rows.indices), columns: IndexSet(integer: column), format: .text)
+            } else if !table.selectedRowIndexes.isEmpty {
+                copy(result, rows: table.selectedRowIndexes, columns: IndexSet(integersIn: result.columns.indices), format: .text)
+            }
+        }
+
+        func menu(in table: NSTableView, row: Int, column: Int) -> NSMenu? {
+            let result = parent.result
+            guard let query = parent.query, result.columns.indices.contains(column) else { return nil }
+            let allRows = IndexSet(integersIn: result.rows.indices)
+            let allColumns = IndexSet(integersIn: result.columns.indices)
+            let pickedColumn = IndexSet(integer: column)
+            let menu = NSMenu(); menu.autoenablesItems = false
+            if result.rows.indices.contains(row) {
+                if query.tab.selectedResultColumn != column {
+                    let pickedRows = table.selectedRowIndexes.contains(row) ? table.selectedRowIndexes : IndexSet(integer: row)
+                    GridContextMenu.item("Copy", in: menu) { self.copy(result, rows: pickedRows, columns: allColumns, format: .text) }
+                    addFormats("Copy Rows As", in: menu, result: result, rows: pickedRows, columns: allColumns)
+                } else {
+                    GridContextMenu.item("Copy", in: menu) { self.copy(result, rows: allRows, columns: pickedColumn, format: .text) }
+                }
+                let value = result.rows[row][column]
+                GridContextMenu.item("Copy Cell Value", in: menu) { GridClipboard.copy(value.display) }
+            } else if row == -1 {
+                GridContextMenu.item("Copy", in: menu, enabled: !allRows.isEmpty) {
+                    self.copy(result, rows: allRows, columns: pickedColumn, format: .text)
+                }
+            }
+            addFormats("Copy Column As", in: menu, result: result, rows: allRows, columns: pickedColumn)
+            return menu
+        }
+
+        private func addFormats(_ title: String, in menu: NSMenu, result: QueryResult, rows: IndexSet, columns: IndexSet) {
+            let formats = GridContextMenu.submenu(title, in: menu)
+            for format in RowCopyFormat.allCases {
+                GridContextMenu.item(format.rawValue, in: formats) { self.copy(result, rows: rows, columns: columns, format: format) }
+            }
+            GridContextMenu.item("SQL Dump", in: formats) { self.copy(result, rows: rows, columns: columns, format: nil) }
+        }
+
+        private func copy(_ result: QueryResult, rows: IndexSet, columns: IndexSet, format: RowCopyFormat?) {
+            guard let query = parent.query else { return }
+            let indices = columns.filter(result.columns.indices.contains)
+            var fields = indices.map { result.columns[$0] }
+            let values = rows.filter(result.rows.indices.contains).map { row in indices.map { result.rows[row][$0] } }
+            if format == nil || format == .json || format == .sql { fields = GridClipboard.uniqueFields(fields) }
+            do {
+                let text: String
+                if let format {
+                    text = try GridClipboard.encode(values, fields: fields, format: format, table: "query_result", driver: query.driver)
+                } else {
+                    text = try GridClipboard.dump(values, fields: fields, table: "query_result", driver: query.driver)
+                }
+                GridClipboard.copy(text)
+            } catch {
+                query.tab.error = error.localizedDescription
+            }
         }
     }
 }

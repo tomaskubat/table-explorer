@@ -15,7 +15,7 @@ struct QueryPane: View {
 
     @AppStorage("highlightSQL", store: BrowserPreferences.defaults) private var highlight = true
     @AppStorage("indentSpaces", store: BrowserPreferences.defaults) private var indent = 4
-    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = "Review writes"
+    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = DirectSQLExecution.reviewWrites
 
     var body: some View {
         SQLTextEditor(text: $tab.sql, selection: $tab.textSelection, fontSize: fontSize, highlighting: highlight, indent: indent, driver: workspace.profile.driver, objectNames: workspace.objects.map(\.name)) { focused in
@@ -46,19 +46,6 @@ struct QueryPane: View {
                 Button("Stop Query") { Task { await workspace.stop(tab) } }.disabled(tab.stopRequested)
                 if tab.stopRequested { Text("Stop requested. Waiting for the database…").font(.caption) }
             }
-        }
-        if tab.executions.count > 1 {
-            Picker("Statement Result", selection: Binding(get: { tab.executionIndex }, set: { tab.selectExecution($0) })) {
-                ForEach(Array(tab.executions.map(\.title).enumerated()), id: \.offset) { index, title in
-                    Text(title).tag(index)
-                }
-            }.accessibilityIdentifier("Statement Result")
-        }
-        if let elapsed = tab.lastDuration {
-            let affected = tab.result.affectedRows
-            let count = affected == 1 ? "1 affected row" : "\(affected) affected rows"
-            Text(String(format: "%.3f s", elapsed) + (tab.result.columns.isEmpty && tab.error == nil ? " · " + count : ""))
-                .font(.caption).foregroundStyle(.secondary)
         }
         Color.clear.frame(height: 0)
             .sheet(isPresented: Binding(get: { !review.isEmpty }, set: { if !$0 { review = [] } })) {
@@ -103,8 +90,53 @@ struct QueryPane: View {
             let query = QueryVariables(commands, format: variableFormat, driver: workspace.profile.driver, insideStrings: insideStrings)
             if !query.names.isEmpty { variables = query; return }
         }
-        if workspace.profile.production || safety == "Review every statement" || (safety != "Run immediately" && commands.contains(where: SQLDocument.requiresConfirmation)) { review = commands }
+        if safety.requiresReview(commands, production: workspace.profile.production) { review = commands }
         else { Task { await workspace.run(commands, on: tab) } }
+    }
+}
+
+struct QueryResultsPane: View {
+    let workspace: Workspace
+    @Bindable var tab: WorkspaceTab
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if tab.executions.count > 1 { resultTabs }
+            if let elapsed = tab.lastDuration {
+                let affected = tab.result.affectedRows
+                let count = affected == 1 ? "1 affected row" : "\(affected) affected rows"
+                Text(String(format: "%.3f s", elapsed) + (tab.result.columns.isEmpty && tab.error == nil ? " · " + count : ""))
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 3)
+            }
+            if let error = tab.error {
+                Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("queryError")
+            }
+            ResultTable(result: tab.result, selected: $tab.selected, query: .init(tab: tab, driver: workspace.profile.driver))
+        }
+    }
+
+    @ViewBuilder private var resultTabs: some View {
+        ScrollViewReader { scroll in
+            ScrollView(.horizontal) {
+                HStack(spacing: 2) {
+                    ForEach(tab.executions.indices, id: \.self) { index in
+                        let selected = index == tab.executionIndex
+                        Button(tab.executions[index].title) { tab.selectExecution(index) }
+                            .buttonStyle(.plain).font(.system(size: 11, weight: selected ? .semibold : .regular))
+                            .padding(.horizontal, 10).frame(height: 26)
+                            .background(selected ? BrowserChrome.paper : .clear)
+                            .overlay(alignment: .bottom) { if selected { Color.accentColor.frame(height: 2) } }
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .id(index)
+                    }
+                }.padding(.horizontal, 4)
+            }
+            .scrollIndicators(.hidden)
+            .background(BrowserChrome.panel)
+            .onChange(of: tab.executionIndex, initial: true) { scroll.scrollTo(tab.executionIndex) }
+            .accessibilityLabel("Statement Results")
+        }
+        Divider()
     }
 }
 

@@ -108,8 +108,26 @@ import Synchronization
         try check(tab.executions.count == 1 && tab.result.rows.first?.first != .integer("999"), "manual Stop never starts the next statement in a script")
     }
 
+    @MainActor private static func checkSessionCredentials() throws {
+        let library = ConnectionLibrary()
+        guard let group = library.groups.first else { throw BrowserError("Missing isolated connection group") }
+        let fixture = try ProfileAddress.parse("mariadb+ssh://jump:dummy-ssh@bastion/reader:dummy-db@db/catalog")
+        try library.save(fixture.profile, in: group.id, password: fixture.password, sshPassword: fixture.sshPassword)
+        let saved = try String(contentsOf: library.directory.appending(path: "connections.json"), encoding: .utf8)
+        try check(!saved.contains("dummy-db") && !saved.contains("dummy-ssh"), "session passwords stay out of the saved profile file")
+        let password = try library.password(for: fixture.profile)
+        let sshPassword = try library.password(for: fixture.profile, ssh: true)
+        try check(password == fixture.password && sshPassword == fixture.sshPassword,
+                  "saved profiles can connect again with database and SSH credentials entered during this app session")
+        let fresh = ConnectionLibrary()
+        let reopened = try fresh.password(for: fixture.profile)
+        let reopenedSSH = try fresh.password(for: fixture.profile, ssh: true)
+        try check(reopened.isEmpty && reopenedSSH.isEmpty, "credentials outside Keychain disappear when the app session ends")
+    }
+
     private static func run() async throws {
         try checkSSHAddresses()
+        try await checkSessionCredentials()
         let path = CommandLine.arguments[1]
         let support = URL(filePath: path).deletingLastPathComponent().appending(path: "Application Support")
         let legacy = support.appending(path: "ConnectionBrowser", directoryHint: .isDirectory)

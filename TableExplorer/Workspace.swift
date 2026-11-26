@@ -23,6 +23,7 @@ final class WorkspaceTab: Identifiable {
     let id: UUID
     var title: String
     let object: DatabaseObject?
+    private(set) var isPreview: Bool
     var needsTableLoad = false
     var sql = ""
     var fileURL: URL?
@@ -34,11 +35,13 @@ final class WorkspaceTab: Identifiable {
     var variableValues: [String: String] = [:]
     var executions: [(title: String, sql: String, result: QueryResult, error: String?, duration: TimeInterval)] = []
     var executionIndex = 0
+    var selectedResultColumn: Int?
     var lastDuration: TimeInterval? { executions.indices.contains(executionIndex) ? executions[executionIndex].duration : nil }
     func selectExecution(_ index: Int) {
         guard executions.indices.contains(index) else { return }
         executionIndex = index
-        result = executions[index].result; error = executions[index].error; selected = nil
+        result = executions[index].result; error = executions[index].error
+        selected = nil; selectedResultColumn = nil
     }
     var result = QueryResult()
     var error: String?
@@ -146,6 +149,7 @@ final class WorkspaceTab: Identifiable {
         guard !batch.isEmpty else { return }
         editHistory.append(changes)
         for change in batch { apply(change) }
+        if !changes.isEmpty { keepOpen() }
     }
 
     private func apply(_ change: RowChange) {
@@ -179,7 +183,11 @@ final class WorkspaceTab: Identifiable {
     }
     func discard() { changes.removeAll(); editHistory.removeAll(); commitError = nil }
     func undoChange() { if let previous = editHistory.popLast() { changes = previous } }
-    init(id: UUID = UUID(), title: String, object: DatabaseObject? = nil) { self.id = id; self.title = title; self.object = object }
+    func keepOpen() { isPreview = false }
+
+    init(id: UUID = UUID(), title: String, object: DatabaseObject? = nil, isPreview: Bool = false) {
+        self.id = id; self.title = title; self.object = object; self.isPreview = isPreview
+    }
 }
 
 @MainActor @Observable
@@ -268,10 +276,12 @@ final class Workspace: Identifiable {
         await reloadObjects()
         if let state, state.initialDatabase == initialDatabase, state.database == database, error == nil, tabs.isEmpty {
             var selected: UUID?
+            var allowsPreview = BrowserPreferences.previewTabEnabled
             let available = Set(objects)
             for saved in state.tabs {
                 if let object = saved.object, !available.contains(object) { continue }
-                let tab = saved.makeTab(id: notebook.restoredTabID(saved.id))
+                let tab = saved.makeTab(id: notebook.restoredTabID(saved.id), allowPreview: allowsPreview)
+                if tab.isPreview { allowsPreview = false }
                 tabs.append(tab)
                 if saved.id == state.active { selected = tab.id }
                 if tab.object == nil {
@@ -397,7 +407,9 @@ final class Workspace: Identifiable {
 
     func clearDatabaseResults() {
         tabs.removeAll { $0.object != nil }
-        for tab in tabs { tab.result = QueryResult(); tab.executions = []; tab.error = nil; tab.selected = nil }
+        for tab in tabs {
+            tab.result = QueryResult(); tab.executions = []; tab.error = nil; tab.selected = nil; tab.selectedResultColumn = nil
+        }
         if !tabs.contains(where: { $0.id == activeID }) { activeID = tabs.last?.id }
     }
 
@@ -468,15 +480,23 @@ final class Workspace: Identifiable {
             error = nil
         } catch { record(error) }
     }
-    func open(_ object: DatabaseObject, newTab: Bool = false, structure: Bool = false) async {
-        if !newTab, let existing = tabs.first(where: { $0.object == object }) {
+    func open(_ object: DatabaseObject, newTab: Bool = false, structure: Bool = false, preview: Bool = false) async {
+        let opensInPreview = preview && !newTab && !structure && BrowserPreferences.previewTabEnabled
+            && (object.kind == .table || object.kind == .view)
+        if !newTab, let existing = tabs.first(where: { $0.object == object && !$0.isPreview }) ?? tabs.first(where: { $0.object == object }) {
+            if !opensInPreview { existing.keepOpen() }
             activeID = existing.id
             if structure { existing.showStructure = true }
             return
         }
-        let tab = WorkspaceTab(title: object.name, object: object)
+        let tab = WorkspaceTab(title: object.name, object: object, isPreview: opensInPreview)
         tab.showStructure = structure
-        tabs.append(tab)
+        if opensInPreview, let index = tabs.firstIndex(where: \.isPreview) {
+            tabs[index].requestID = UUID()
+            tabs[index] = tab
+        } else {
+            tabs.append(tab)
+        }
         activeID = tab.id
         await loadTable(tab)
     }
@@ -496,6 +516,7 @@ final class Workspace: Identifiable {
         var metadataError: String?
         do { tab.schema = try await session.schema(of: object, driver: profile.driver) }
         catch { metadataError = error.localizedDescription }
+        guard tabs.contains(where: { $0 === tab }) else { return }
         await load(tab)
         if let metadataError, tab.error == nil { tab.error = metadataError }
     }
@@ -604,7 +625,7 @@ final class Workspace: Identifiable {
     func run(_ statements: [String], on tab: WorkspaceTab, templates: [String]? = nil) async {
         guard connected, !tab.busy else { return }
         tab.busy = true; tab.stopRequested = false
-        tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil
+        tab.error = nil; tab.executions = []; tab.result = QueryResult(); tab.selected = nil; tab.selectedResultColumn = nil
         defer { tab.busy = false; tab.cancellation = nil; tab.stopRequested = false }
         for (index, sql) in statements.enumerated() {
             guard !tab.stopRequested else { break }
@@ -656,11 +677,12 @@ final class Workspace: Identifiable {
 
 @MainActor @Observable
 final class WorkspaceRegistry: NSObject {
-    var sessions: [UUID: Workspace] = [:]
+    private(set) var sessions: [UUID: Workspace] = [:]
+    private var sessionIDs: [UUID] = []
     var activeID: UUID?
     var active: Workspace? { activeID.flatMap { sessions[$0] } }
     var orderedSessions: [Workspace] {
-        sessions.values.sorted { ($0.profile.name, $0.id.uuidString) < ($1.profile.name, $1.id.uuidString) }
+        sessionIDs.compactMap { sessions[$0] }
     }
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored var closeHandler: ((Workspace) -> Void)?
@@ -674,7 +696,9 @@ final class WorkspaceRegistry: NSObject {
     }
 
     func add(_ workspace: Workspace) {
+        guard sessions[workspace.id] == nil else { return }
         sessions[workspace.id] = workspace
+        sessionIDs.append(workspace.id)
         workspace.window = window
         activate(workspace.id)
         Task { await workspace.start() }
@@ -690,11 +714,11 @@ final class WorkspaceRegistry: NSObject {
     func requestClose(_ workspace: Workspace) { closeHandler?(workspace) }
 
     func remove(_ workspace: Workspace) {
-        guard sessions[workspace.id] === workspace else { return }
+        guard sessions[workspace.id] === workspace, let index = sessionIDs.firstIndex(of: workspace.id) else { return }
         workspace.rememberOnClose()
         workspace.releaseRecovery()
         workspace.window = nil
-        let index = orderedSessions.firstIndex { $0.id == workspace.id } ?? 0
+        sessionIDs.remove(at: index)
         sessions[workspace.id] = nil
         if activeID == workspace.id {
             let remaining = orderedSessions
@@ -729,13 +753,11 @@ final class WorkspaceRegistry: NSObject {
         isTerminating = true
         var byLibrary: [URL: [StartupWindow]] = [:]
         let reopen = BrowserPreferences.defaults.bool(forKey: "reopenWorkspaces")
-        // Save every connection in the shared window, restoring the active one last.
-        let ordered = orderedSessions.filter { $0.id != activeID } + (active.map { [$0] } ?? [])
-        for workspace in ordered {
+        for workspace in orderedSessions {
             let state = workspace.rememberOnClose()
             if reopen && workspace.connected {
                 byLibrary[workspace.notebook.libraryDirectory.standardizedFileURL, default: []].append(
-                    StartupWindow(profile: workspace.profile.id, state: state))
+                    StartupWindow(profile: workspace.profile.id, state: state, active: workspace.id == activeID))
             }
         }
         var paths: [String] = []

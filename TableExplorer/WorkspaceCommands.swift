@@ -137,6 +137,8 @@ struct WorkspaceCommands: Commands {
                 .disabled(workspace?.connected != true || workspace?.hasRunningTasks == true)
             Button("Reconnect") { if let workspace { Task { await workspace.reconnect() } } }
                 .disabled(workspace?.connected != false || workspace?.reconnecting == true)
+            Button("Close Connection") { if let workspace { registry.requestClose(workspace) } }
+                .disabled(workspace == nil)
         }
     }
     private func navigate(_ action: BrowserAction) {

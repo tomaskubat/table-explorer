@@ -2,6 +2,7 @@ import CryptoKit
 import SwiftUI
 
 enum BrowserPreferences {
+    static let previewTabKey = "enablePreviewTab"
     // UserDefaults is thread-safe. Connection workers also read timeout values.
     nonisolated(unsafe) static let defaults: UserDefaults = {
         if let path = ProcessInfo.processInfo.environment["CONNECTION_BROWSER_LIBRARY"] {
@@ -22,6 +23,17 @@ enum BrowserPreferences {
     static var queryLimit: Int { integer("queryLimit", fallback: 1000, range: 1...100000) }
     static var timeout: Int { integer("connectTimeout", fallback: 5, range: 1...120) }
     static var busyTimeout: Int { integer("sqliteBusySeconds", fallback: 3, range: 0...60) }
+    static var previewTabEnabled: Bool { defaults.object(forKey: previewTabKey) as? Bool ?? true }
+}
+
+enum DirectSQLExecution: String, CaseIterable {
+    case reviewWrites = "Review writes"
+    case reviewAll = "Review every statement"
+    case immediate = "Run immediately"
+
+    func requiresReview(_ statements: [String], production: Bool) -> Bool {
+        self != .immediate && (production || self == .reviewAll || statements.contains(where: SQLDocument.requiresConfirmation))
+    }
 }
 
 struct BrowserAppearance: ViewModifier {
@@ -45,10 +57,11 @@ struct PreferencesView: View {
     @AppStorage("csvSeparator", store: BrowserPreferences.defaults) private var separator = ","
     @AppStorage("csvHeader", store: BrowserPreferences.defaults) private var header = true
     @AppStorage("csvNull", store: BrowserPreferences.defaults) private var nullToken = "\\N"
-    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = "Review writes"
+    @AppStorage("querySafety", store: BrowserPreferences.defaults) private var safety = DirectSQLExecution.reviewWrites
     @AppStorage("dumpTool", store: BrowserPreferences.defaults) private var dumpTool = ""
     @AppStorage("restoreTool", store: BrowserPreferences.defaults) private var restoreTool = ""
     @AppStorage("reopenWorkspaces", store: BrowserPreferences.defaults) private var reopen = false
+    @AppStorage(BrowserPreferences.previewTabKey, store: BrowserPreferences.defaults) private var previewTabEnabled = true
     @AppStorage("loadingWallpaper", store: BrowserPreferences.defaults) private var wallpaper = true
     @AppStorage("autoHideScrollers", store: BrowserPreferences.defaults) private var hideScrollers = true
     @AppStorage("alternateRows", store: BrowserPreferences.defaults) private var alternate = true
@@ -75,6 +88,7 @@ struct PreferencesView: View {
                             Toggle("Reopen closed workspaces at startup", isOn: $reopen)
                                 .onChange(of: reopen) { if !reopen { BrowserPreferences.defaults.removeObject(forKey: "startupLibraries") } }
                             Text("Reconnect to the profiles that were open when you quit. Each connection controls whether its tabs are restored.").font(.caption).foregroundStyle(.secondary)
+                            Toggle("Enable preview tab", isOn: $previewTabEnabled)
                             Toggle("Show loading artwork", isOn: $wallpaper)
                             if let updateChecks { Toggle("Automatically check for updates", isOn: updateChecks) }
                         }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
@@ -160,9 +174,9 @@ struct PreferencesView: View {
             }.tabItem { Label("Locations", systemImage: "folder") }
             Form {
                 Picker("Direct SQL execution", selection: $safety) {
-                    ForEach(["Review writes", "Review every statement", "Run immediately"], id: \.self) { Text($0) }
+                    ForEach(DirectSQLExecution.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.accessibilityIdentifier("SQL Safety")
-                Text("Production profiles always review direct SQL. Table edits are staged until you commit the preview. Saved passwords use the macOS Keychain.").font(.callout)
+                Text("Run immediately skips SQL editor review, including for production profiles. Table edits are staged until you commit the preview. Remembered passwords use the macOS Keychain.").font(.callout)
             }.tabItem { Label("Security", systemImage: "lock") }
             KeymapPreferences().tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }.onChange(of: statementTimeout) { statementTimeout = min(86400, max(0, statementTimeout)) }

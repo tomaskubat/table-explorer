@@ -7,7 +7,7 @@ struct ObjectListView: View {
         Binding(get: { workspace.active?.object }, set: { object in
             guard let object, object != workspace.active?.object else { return }
             workspace.focusArea = .items
-            Task { await workspace.open(object) }
+            Task { await workspace.open(object, preview: true) }
         })
     }
     private var visible: [DatabaseObject] { workspace.objects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) } }

@@ -15,9 +15,13 @@ import SwiftUI
                     try await commitFeedback()
                     exit(0)
                 }
+                if CommandLine.arguments.contains("--direct-sql-only") {
+                    try await directSQL()
+                    exit(0)
+                }
                 try await removeFilters()
                 if !CommandLine.arguments.contains("--filters-only") {
-                    try await run(); try await refreshData(); try await sharedConnections(); try await commitFeedback(); try filterCompletion()
+                    try await run(); try await refreshData(); try await previewTabs(); try await sharedConnections(); try await directSQL(); try await commitFeedback(); try filterCompletion()
                 }
                 exit(0)
             }
@@ -200,8 +204,7 @@ import SwiftUI
         _ = try await session.query("CREATE TABLE countries(id INTEGER PRIMARY KEY, name TEXT)")
         let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
                                   notebook: registry.notebook(for: profile.id, directory: directory))
-        registry.sessions[workspace.id] = workspace
-        registry.activeID = workspace.id
+        registry.add(workspace)
         await workspace.start()
         await workspace.open(DatabaseObject(name: "cities", kind: .table))
         let city = workspace.active!
@@ -279,10 +282,12 @@ import SwiftUI
               "loading a single open table also preserves the layout")
         city.busy = false
         workspace.rememberOnClose()
-        let restored = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+        let restoredSession = DatabaseSession()
+        _ = try await restoredSession.open(profile, password: "")
+        let restored = Workspace(profile: profile, session: restoredSession, database: database, password: "", sshPassword: "",
                                  notebook: workspace.notebook)
         await restored.start()
-        registry.sessions[workspace.id] = nil
+        registry.remove(workspace)
         registry.add(restored)
         try await draw()
         let restoredNavigator = tables(in: window.contentView!).first { !($0 is DataGrid.GridTable) }!
@@ -303,7 +308,7 @@ import SwiftUI
             if let sheet = window.attachedSheet {
                 window.endSheet(sheet, returnCode: .alertThirdButtonReturn); try await draw()
                 check(!window.isVisible, "discarding SQL closes the connection on the first attempt")
-                check(closed.value == 1, "closing the last connection requests application termination exactly once")
+                check(closed.value == 1, "closing the last connection requests the saved connections window exactly once")
             } else { check(false, "closing a connection still guards unsaved SQL after canceling") }
         } else { check(false, "closing a connection protects unsaved SQL") }
         await session.close()
@@ -376,6 +381,178 @@ import SwiftUI
         await session.close()
     }
 
+    @MainActor static func previewTabs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaults = BrowserPreferences.defaults, key = BrowserPreferences.previewTabKey
+        let original = defaults.object(forKey: key)
+        defaults.removeObject(forKey: key)
+        defer { defaults.set(original, forKey: key) }
+        var profile = ConnectionProfile()
+        profile.driver = .sqlite; profile.filePath = directory.appending(path: "preview.sqlite").path
+        _ = try SQLiteHandle(path: profile.filePath, create: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: "")
+        let objects = ["cities", "countries", "places"].map { DatabaseObject(name: $0, kind: .table) }
+        for object in objects {
+            _ = try await session.query("CREATE TABLE \(object.name)(id INTEGER PRIMARY KEY, name TEXT)")
+        }
+        let notebook = QueryNotebook(directory: directory, profile: profile.id)
+        let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "", notebook: notebook)
+        await workspace.start()
+        func check(_ condition: Bool, _ label: String) throws {
+            guard condition else { throw BrowserError("FAIL: " + label) }
+            print("PASS: " + label)
+        }
+        let (cities, countries, places) = (objects[0], objects[1], objects[2])
+        await workspace.open(cities, preview: true)
+        try check(workspace.active?.isPreview == true, "preview tabs are enabled by default")
+        await workspace.open(countries, preview: true)
+        try check(workspace.tabs.map(\.object) == [countries] && workspace.active?.isPreview == true,
+                  "a new preview replaces the previous preview in the same slot")
+        let countryID = workspace.activeID
+        await workspace.open(countries)
+        await workspace.open(cities, preview: true)
+        let cityID = workspace.activeID
+        await workspace.open(countries, preview: true)
+        try check(workspace.activeID == countryID && workspace.active?.isPreview == false && workspace.tabs.last?.id == cityID,
+                  "explicit open keeps the same tab and selecting a permanent tab preserves the preview")
+        let otherSession = DatabaseSession()
+        _ = try await otherSession.open(profile, password: "")
+        let other = Workspace(profile: profile, session: otherSession, database: database, password: "", sshPassword: "", notebook: notebook)
+        other.startupState = workspace.stateForReopening()
+        await other.start()
+        await other.open(places, preview: true)
+        try check(workspace.tabs.last?.id == cityID && workspace.tabs.last?.isPreview == true && other.tabs.map(\.object) == [countries, places],
+                  "restored previews stay replaceable and each connection has its own preview")
+        await workspace.open(cities, preview: true)
+        workspace.active?.stage(RowChange(original: nil, changes: ["name": .text("Draft city")]))
+        await workspace.open(places, preview: true)
+        try check(workspace.tabs.contains { $0.id == cityID && !$0.isPreview && !$0.changes.isEmpty },
+                  "editing a preview keeps the row draft when another preview opens")
+
+        let registry = WorkspaceRegistry()
+        registry.add(workspace); registry.add(other)
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1150, height: 660),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: WorkspaceHostView(registry: registry))
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(100))
+        defaults.set(false, forKey: key)
+        for _ in 0..<30 {
+            if registry.orderedSessions.allSatisfy({ $0.tabs.allSatisfy { !$0.isPreview } }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try check(workspace.active?.object == places && other.active?.object == places
+                    && registry.orderedSessions.allSatisfy({ $0.tabs.allSatisfy { !$0.isPreview } }),
+                  "turning previews off keeps the current previews open in both connections")
+        workspace.closeTab(workspace.active!)
+        await workspace.open(places, preview: true)
+        try check(workspace.tabs.count == 3 && workspace.tabs.allSatisfy { !$0.isPreview },
+                  "turning previews off opens new objects as permanent tabs")
+        await otherSession.close(); await session.close()
+    }
+
+    @MainActor static func directSQL() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        BrowserPreferences.defaults.set("Run immediately", forKey: "querySafety")
+        defer { BrowserPreferences.defaults.removeObject(forKey: "querySafety") }
+        var profile = ConnectionProfile()
+        profile.name = "Direct SQL"; profile.driver = .sqlite; profile.environment = "production"
+        profile.filePath = directory.appending(path: "query.sqlite").path
+        _ = try SQLiteHandle(path: profile.filePath, create: true)
+        let session = DatabaseSession()
+        let database = try await session.open(profile, password: "")
+        let workspace = Workspace(profile: profile, session: session, database: database, password: "", sshPassword: "",
+                                  notebook: QueryNotebook(directory: directory, profile: profile.id))
+        await workspace.start()
+        workspace.newQuery(text: "CREATE TABLE direct_sql(id INTEGER)")
+        let tab = workspace.active!
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 640, height: 360),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: VStack {
+            QueryPane(workspace: workspace, tab: tab)
+            QueryResultsPane(workspace: workspace, tab: tab)
+        })
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(100))
+        tab.runRequest = UUID()
+        for _ in 0..<50 {
+            if !tab.executions.isEmpty || window.attachedSheet != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard window.attachedSheet == nil, tab.executions.count == 1, tab.error == nil else {
+            throw BrowserError("FAIL: Run immediately executes SQL editor writes without a review sheet on a production-tagged fixture")
+        }
+        print("PASS: Run immediately executes SQL editor writes without a review sheet on a production-tagged fixture")
+
+        let first = "SELECT 1 AS id, 'Brno' AS city UNION ALL SELECT 2, 'Praha' UNION ALL SELECT 3, 'Ostrava'"
+        await workspace.run([first, "SELECT 'second result' AS label"], on: tab)
+        try await Task.sleep(for: .milliseconds(100))
+        guard tab.executions.count == 2 && tab.result.rows == [[.text("second result")]] else {
+            throw BrowserError("FAIL: a SQL script keeps both statement results")
+        }
+        tab.selectExecution(0)
+        try await Task.sleep(for: .milliseconds(100))
+        func resultGrid(in view: NSView) -> ResultTable.QueryTable? {
+            (view as? ResultTable.QueryTable) ?? view.subviews.lazy.compactMap(resultGrid).first
+        }
+        guard let table = window.contentView.flatMap(resultGrid), let coordinator = table.coordinator,
+              table.numberOfRows == 3 else { throw BrowserError("FAIL: the first result is displayed in the grid when selected") }
+
+        let board = NSPasteboard.general
+        let previous = (board.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
+            return copy
+        }
+        var copiedAt = board.changeCount
+        defer {
+            if board.changeCount == copiedAt {
+                board.clearContents()
+                if !previous.isEmpty { board.writeObjects(previous) }
+            }
+        }
+        func copy(_ format: String, from scope: String, row: Int, column: Int) throws -> String {
+            guard let menu = coordinator.menu(in: table, row: row, column: column)?.item(withTitle: scope)?.submenu,
+                  let item = menu.item(withTitle: format), let action = item.action,
+                  NSApp.sendAction(action, to: item.target, from: item) else {
+                throw BrowserError("FAIL: the result grid offers \(format) in \(scope)")
+            }
+            copiedAt = board.changeCount
+            return board.string(forType: .string) ?? ""
+        }
+        table.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+        guard tab.selectedRows == [0, 2] else { throw BrowserError("FAIL: the result grid retains multiple selected rows") }
+        let json = try copy("JSON", from: "Copy Rows As", row: 0, column: 1)
+        let copied = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]
+        guard copied?.compactMap({ $0["city"] as? String }) == ["Brno", "Ostrava"] else {
+            throw BrowserError("FAIL: Copy Rows As JSON uses the selected rows")
+        }
+        print("PASS: Copy Rows As JSON uses the selected rows")
+
+        coordinator.tableView(table, didClick: table.tableColumns[1])
+        guard tab.selectedResultColumn == 1, tab.selectedRows.isEmpty,
+              table.highlightedTableColumn === table.tableColumns[1] else {
+            throw BrowserError("FAIL: the result grid can select an entire column")
+        }
+        let dump = try copy("SQL Dump", from: "Copy Column As", row: -1, column: 1)
+        for statement in SQLDocument.statements(in: dump, driver: .sqlite) { _ = try await session.query(statement.sql) }
+        let restored = try await session.query("SELECT * FROM query_result")
+        guard restored.columns == ["city"], restored.rows == [[.text("Brno")], [.text("Praha")], [.text("Ostrava")]] else {
+            throw BrowserError("FAIL: the selected column's SQL dump recreates the entire column")
+        }
+        print("PASS: the selected column's SQL dump recreates the entire column")
+        await session.close()
+    }
+
     @MainActor static func sharedConnections() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -399,7 +576,7 @@ import SwiftUI
             guard condition else { throw BrowserError("FAIL: " + label) }
             print("PASS: " + label)
         }
-        let first = try await makeWorkspace("First"), second = try await makeWorkspace("Second")
+        let first = try await makeWorkspace("Zulu"), second = try await makeWorkspace("Alpha")
         registry.add(first)
         first.newQuery(); first.active!.sql = "SELECT 'first draft';"
         let draftID = first.activeID
@@ -418,6 +595,7 @@ import SwiftUI
         registry.add(second); try await draw()
         try check(registry.active === second && first.window === window && second.window === window && window.windowNumber == number,
                   "opening a second connection reuses the same window")
+        try check(registry.orderedSessions.map(\.id) == [first.id, second.id], "new connections follow earlier connections in the session rail")
         registry.activate(first.id); try await draw()
         try check(first.activeID == draftID && first.active?.sql == "SELECT 'first draft';" && first.active?.unsavedSQL == true,
                   "switching connections preserves SQL tabs and unsaved text")
@@ -438,7 +616,7 @@ import SwiftUI
         window.endSheet(window.attachedSheet!, returnCode: .alertThirdButtonReturn); try await draw()
         try check(registry.sessions.count == 1 && registry.active === second && second.active?.busy == true && window.isVisible,
                   "closing one connection leaves the other connection and its running query open")
-        try check(closed.value == 0, "closing one of several connections does not request application termination")
+        try check(closed.value == 0, "closing one of several connections does not request the saved connections window")
         second.active!.busy = false
         let third = try await makeWorkspace("Third")
         third.newQuery(); third.active!.sql = "SELECT 'third draft';"
@@ -446,8 +624,8 @@ import SwiftUI
         BrowserPreferences.defaults.set(true, forKey: "reopenWorkspaces")
         NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: NSApp)
         let startup = StartupWindowFile.consume(in: directory)
-        try check(startup.count == 2 && startup.last?.profile == second.profile.id && startup.contains { $0.profile == third.profile.id },
-                  "startup restoration remembers every shared-window connection and the active connection")
+        try check(startup.map(\.profile) == [second.profile.id, third.profile.id] && startup.first?.active == true,
+                  "startup restoration remembers connection order and which connection was active")
         window.performClose(nil); try await draw()
         try check(window.attachedSheet != nil && registry.active === third,
                   "closing the shared window also guards unsaved SQL in an inactive connection")

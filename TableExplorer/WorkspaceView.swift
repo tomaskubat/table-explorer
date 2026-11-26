@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkspaceHostView: View {
     let registry: WorkspaceRegistry
+    @AppStorage(BrowserPreferences.previewTabKey, store: BrowserPreferences.defaults) private var previewTabEnabled = true
 
     var body: some View {
         Group {
@@ -12,6 +13,13 @@ struct WorkspaceHostView: View {
             }
         }
         .background(WorkspaceWindowGuard(registry: registry).frame(width: 0, height: 0))
+        .onChange(of: previewTabEnabled) {
+            if !previewTabEnabled {
+                for workspace in registry.orderedSessions {
+                    workspace.tabs.first(where: \.isPreview)?.keepOpen()
+                }
+            }
+        }
         .task {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
@@ -212,9 +220,13 @@ struct WorkspaceView: View {
                             } label: {
                                 Text(tab.title).lineLimit(1)
                                     .font(.system(size: 11, weight: active ? .semibold : .regular))
+                                    .italic(tab.isPreview)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("workspace-tab-" + tab.title)
+                            }.buttonStyle(.plain)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { tab.keepOpen() })
+                                .accessibilityValue(tab.isPreview ? "Preview" : "")
+                                .accessibilityIdentifier("workspace-tab-" + tab.title)
                         }
                         .frame(width: max(100, area.size.width / CGFloat(workspace.tabs.count)), height: 25)
                         .background(active ? BrowserChrome.paper : BrowserChrome.bar)
@@ -290,7 +302,11 @@ private struct RenameWorkspaceTab: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Rename") { tab.title = name.trimmingCharacters(in: .whitespacesAndNewlines); dismiss() }
+                Button("Rename") {
+                    tab.title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    tab.keepOpen()
+                    dismiss()
+                }
                     .keyboardShortcut(.defaultAction).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(16).frame(width: 300)
@@ -311,10 +327,8 @@ private struct WorkspaceTabView: View {
                 VSplitView {
                     VStack(spacing: 0) { QueryPane(workspace: workspace, tab: tab) }
                         .frame(minHeight: 118, idealHeight: 280, maxHeight: .infinity)
-                    VStack(alignment: .leading, spacing: 0) {
-                        activity
-                        ResultTable(result: tab.result, selected: $tab.selected)
-                    }.frame(minHeight: 84, idealHeight: 240, maxHeight: .infinity)
+                    QueryResultsPane(workspace: workspace, tab: tab)
+                        .frame(minHeight: 84, idealHeight: 240, maxHeight: .infinity)
                 }
             } else {
                 if hasDataMode && !tab.showStructure { FilterConditions(workspace: workspace, tab: tab) }
@@ -337,6 +351,9 @@ private struct WorkspaceTabView: View {
             }
             .lineLimit(1).padding(.horizontal, 6).padding(.vertical, 5).background(BrowserChrome.panel)
         }.controlSize(.small)
+        .sheet(item: $tab.cellEditor, onDismiss: { tab.grid?.restoreCellFocus() }) { target in
+            CellEditor(target: target, tab: tab)
+        }
         .sheet(isPresented: $tab.importShown) { ImportCSVView(workspace: workspace, tab: tab) }
         .sheet(isPresented: $tab.exportShown) { ExportView(workspace: workspace, tab: tab, initialScope: tab.exportScope) }
         .onChange(of: tab.transfer, initial: true) {
