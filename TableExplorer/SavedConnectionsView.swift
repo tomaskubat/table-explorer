@@ -82,6 +82,7 @@ struct SavedConnectionsView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 620, minHeight: 380)
+        .background(SavedConnectionsCloseObserver(workspaces: workspaces).frame(width: 0, height: 0))
         .onAppear {
             let showLibrary = openWindow
             workspaces.onLastConnectionClosed = { showLibrary(id: "connections") }
@@ -267,6 +268,41 @@ struct SavedConnectionsView: View {
     private func presentWorkspace(hideLibrary: Bool = true) {
         openWindow(id: "workspace")
         if hideLibrary { dismissWindow(id: "connections") }
+    }
+}
+
+private struct SavedConnectionsCloseObserver: NSViewRepresentable {
+    let workspaces: WorkspaceRegistry
+
+    func makeNSView(context: Context) -> NSView {
+        let observer = CloseView()
+        observer.workspaces = workspaces
+        return observer
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class CloseView: NSView {
+        weak var workspaces: WorkspaceRegistry?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let notifications = NotificationCenter.default
+            notifications.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
+            if let window {
+                notifications.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: window)
+            }
+        }
+
+        @objc private func windowWillClose(_ notification: Notification) {
+            guard let workspaces else { return }
+            // Check after AppKit closes this window and any workspace opened from the list appears.
+            DispatchQueue.main.async {
+                guard !workspaces.isTerminating, workspaces.sessions.isEmpty,
+                      !NSApp.windows.contains(where: { $0.canBecomeKey && ($0.isVisible || $0.isMiniaturized) }) else { return }
+                NSApp.terminate(nil)
+            }
+        }
     }
 }
 

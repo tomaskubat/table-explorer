@@ -164,6 +164,8 @@ final class WorkspaceInteractionTests: XCTestCase {
             app.menuItems["Close Connection"].click()
             XCTAssertTrue(saved.waitForExistence(timeout: 5))
             XCTAssertTrue(host.waitForNonExistence(timeout: 5))
+            saved.buttons[XCUIIdentifierCloseWindow].click()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
         }
     }
 
